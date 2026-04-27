@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQLab</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500;600&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#080b10; --bg1:#0d1117; --bg2:#131920; --bg3:#1a2230;
+    --border:rgba(255,255,255,0.06); --border2:rgba(255,255,255,0.12);
+    --accent:#f0a500; --accent2:#ffc740;
+    --blue:#3b82f6; --blue2:#60a5fa; --green:#22c55e; --red:#ef4444;
+    --text:#e2e8f0; --text2:#94a3b8; --text3:#475569;
+    --radius:8px; --fsize:13.5px;
+    --mono:'IBM Plex Mono',monospace; --sans:'IBM Plex Sans',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;}
+  .app{display:flex;flex-direction:column;height:100vh;}
+
+  header{display:flex;align-items:center;gap:12px;padding:12px 24px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;}
+  .logo-mark{width:30px;height:30px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:12px;color:#000;}
+  .logo-text{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--accent);}
+  .hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .badge{font-family:var(--mono);font-size:10px;color:var(--text3);background:var(--bg3);padding:3px 8px;border-radius:4px;border:1px solid var(--border);}
+  .conn-badge{font-family:var(--mono);font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;gap:5px;cursor:pointer;transition:all .15s;}
+  .conn-badge:hover{border-color:var(--accent);color:var(--accent);}
+  .conn-badge.connected{border-color:rgba(34,197,94,.4);color:var(--green);}
+  .conn-dot{width:6px;height:6px;border-radius:50%;background:var(--text3);}
+  .conn-badge.connected .conn-dot{background:var(--green);box-shadow:0 0 5px var(--green);}
+  .icon-btn{width:30px;height:30px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);color:var(--text2);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+  .icon-btn:hover{background:var(--bg3);border-color:var(--accent);color:var(--accent);}
+
+  #messages{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:18px;scrollbar-width:thin;scrollbar-color:var(--bg3) transparent;}
+  #messages::-webkit-scrollbar{width:4px;}
+  #messages::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:2px;}
+  .msg-row{display:flex;gap:10px;align-items:flex-start;animation:fadeUp .2s ease;}
+  .msg-row.user{flex-direction:row-reverse;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  .avatar{width:28px;height:28px;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;}
+  .avatar.agent{background:var(--accent);color:#000;}
+  .avatar.user{background:var(--blue);color:#fff;}
+  .bubble{max-width:78%;padding:11px 14px;border-radius:var(--radius);font-size:var(--fsize);line-height:1.65;white-space:pre-wrap;}
+  .bubble.agent{background:var(--bg2);border:1px solid var(--border);color:var(--text);border-top-left-radius:2px;}
+  .bubble.user{background:var(--blue);color:#fff;border-top-right-radius:2px;}
+  .bubble.loading{color:var(--text3);}
+  .sql-block{margin-top:10px;background:#050810;border:1px solid rgba(59,130,246,.2);border-left:3px solid var(--blue);border-radius:6px;padding:10px 13px;font-family:var(--mono);font-size:12px;color:var(--blue2);overflow-x:auto;white-space:pre;}
+  .result-wrap{margin-top:10px;overflow-x:auto;border-radius:7px;border:1px solid var(--border2);}
+  table.result{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;table-layout:auto;}
+  table.result thead tr{background:var(--bg3);}
+  table.result th{padding:6px 12px;text-align:left;color:var(--accent);font-size:11px;letter-spacing:.04em;border-bottom:1px solid var(--border2);white-space:nowrap;min-width:80px;}
+  table.result td{padding:6px 12px;color:var(--text2);border-bottom:1px solid var(--border);white-space:nowrap;font-size:11px;min-width:80px;}
+  table.result tbody tr:last-child td{border-bottom:none;}
+  table.result tbody tr:hover td{background:rgba(255,255,255,.025);}
+  .result-info{margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--green);}
+
+  .input-area{flex-shrink:0;padding:14px 24px 18px;background:var(--bg1);border-top:1px solid var(--border);}
+  .input-row{display:flex;gap:8px;align-items:center;}
+  #input{flex:1;background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:11px 14px;border-radius:var(--radius);font-family:var(--sans);font-size:14px;transition:border-color .2s,box-shadow .2s;}
+  #input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(240,165,0,.1);}
+  #input::placeholder{color:var(--text3);}
+  #send-btn{background:var(--accent);color:#000;border:none;padding:11px 20px;border-radius:var(--radius);font-family:var(--mono);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s,transform .1s;white-space:nowrap;}
+  #send-btn:hover{background:var(--accent2);}
+  #send-btn:active{transform:scale(.97);}
+  #send-btn:disabled{background:var(--bg3);color:var(--text3);cursor:not-allowed;}
+  .hint{margin-top:7px;font-size:11px;color:var(--text3);}
+  .hint kbd{background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;font-family:var(--mono);font-size:10px;color:var(--text2);}
+
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:100;display:none;align-items:center;justify-content:center;}
+  .overlay.open{display:flex;}
+  .panel{background:var(--bg1);border:1px solid var(--border2);border-radius:12px;width:480px;max-height:85vh;overflow-y:auto;padding:24px;box-shadow:0 24px 60px rgba(0,0,0,.6);scrollbar-width:thin;scrollbar-color:var(--bg3) transparent;}
+  .panel::-webkit-scrollbar{width:4px;}
+  .panel::-webkit-scrollbar-thumb{background:var(--bg3);}
+  .panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+  .panel-title{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--accent);}
+  .panel-close{width:26px;height:26px;border-radius:5px;background:var(--bg2);border:1px solid var(--border);color:var(--text2);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
+  .panel-close:hover{background:var(--bg3);color:var(--text);}
+
+  .db-tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);}
+  .db-tab{padding:7px 16px;font-family:var(--mono);font-size:11px;cursor:pointer;border:none;background:none;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;}
+  .db-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+  .db-tab:hover:not(.active){color:var(--text2);}
+  .db-panel{display:none}.db-panel.active{display:block}
+
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .grid3{display:grid;grid-template-columns:2fr 1fr 2fr;gap:10px;}
+  .field input,.field select{width:100%;background:var(--bg2);border:1px solid var(--border2);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;transition:border-color .2s;}
+  .field input:focus,.field select:focus{outline:none;border-color:var(--accent);}
+  .field input::placeholder{color:var(--text3);}
+  .pass-wrap{position:relative;}
+  .pass-wrap input{padding-right:38px;}
+  .eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0;transition:color .15s;}
+  .eye-btn:hover{color:var(--text2);}
+
+  .db-actions{display:flex;gap:8px;margin-top:6px;}
+  .db-btn{padding:9px 18px;border-radius:6px;font-family:var(--mono);font-size:12px;cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);transition:all .15s;}
+  .db-btn:hover{background:var(--bg3);border-color:var(--accent);color:var(--accent);}
+  .db-btn.primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600;}
+  .db-btn.primary:hover{background:var(--accent2);}
+
+  .db-status{margin-top:12px;padding:8px 12px;border-radius:6px;font-family:var(--mono);font-size:11px;display:none;}
+  .db-status.ok{display:block;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green);}
+  .db-status.err{display:block;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:var(--red);}
+  .db-status.loading{display:block;background:var(--bg2);border:1px solid var(--border);color:var(--text3);}
+
+  .saved-list{margin-top:16px;}
+  .saved-title{font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}
+  .conn-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;cursor:pointer;transition:all .15s;background:var(--bg2);}
+  .conn-item:hover{border-color:var(--accent);background:var(--bg3);}
+  .conn-item.active-item{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.05);}
+  .conn-name{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);}
+  .conn-url{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;}
+  .conn-type{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;}
+  .conn-type.pg{background:rgba(59,130,246,.15);color:var(--blue2);border:1px solid rgba(59,130,246,.2);}
+  .conn-type.my{background:rgba(240,165,0,.1);color:var(--accent);border:1px solid rgba(240,165,0,.2);}
+  .no-saved{font-family:var(--mono);font-size:11px;color:var(--text3);padding:16px 0;text-align:center;}
+
+  .sg{margin-bottom:18px;}
+  .sg-label{font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;}
+  .divider{height:1px;background:var(--border);margin:4px 0 18px;}
+  .theme-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .theme-card{border:2px solid var(--border);border-radius:8px;padding:9px 12px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:8px;}
+  .theme-card:hover{border-color:var(--border2);}
+  .theme-card.active{border-color:var(--accent);background:rgba(240,165,0,.05);}
+  .theme-prev{width:28px;height:20px;border-radius:4px;border:1px solid rgba(255,255,255,.1);flex-shrink:0;}
+  .theme-name{font-family:var(--mono);font-size:11px;color:var(--text2);}
+  .color-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .cdot{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;}
+  .cdot:hover{transform:scale(1.1);}
+  .cdot.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.3);}
+  .font-list{display:flex;flex-direction:column;gap:6px;}
+  .font-opt{padding:8px 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;color:var(--text2);font-size:13px;}
+  .font-opt:hover{border-color:var(--border2);color:var(--text);}
+  .font-opt.active{border-color:var(--accent);color:var(--accent);background:rgba(240,165,0,.05);}
+  .size-row{display:flex;gap:6px;}
+  .size-btn{padding:5px 14px;border:1px solid var(--border);border-radius:5px;background:none;color:var(--text2);cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .15s;}
+  .size-btn:hover{border-color:var(--border2);color:var(--text);}
+  .size-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(240,165,0,.05);}
+  .slider-row{display:flex;align-items:center;gap:12px;}
+  input[type=range]{flex:1;-webkit-appearance:none;height:4px;background:var(--bg3);border-radius:2px;outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);cursor:pointer;}
+  .slider-val{font-family:var(--mono);font-size:11px;color:var(--text2);width:32px;}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;}
+  .toggle-lbl{font-family:var(--mono);font-size:12px;color:var(--text2);}
+  .toggle{width:36px;height:20px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);cursor:pointer;position:relative;transition:background .2s;}
+  .toggle.on{background:var(--accent);}
+  .toggle::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .2s;}
+  .toggle.on::after{left:18px;}
+  .chart-btn{margin-top:6px;padding:4px 12px;font-family:var(--mono);font-size:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:4px;cursor:pointer;transition:all .15s;}
+  .chart-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .chart-wrap{margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:14px;display:none;}
+  .chart-wrap.show{display:block;}
+  .export-row{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}
+  .exp-btn{padding:4px 10px;font-family:var(--mono);font-size:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:4px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:4px;}
+  .exp-btn:hover{border-color:var(--accent);color:var(--accent);}
+
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo-mark">SL</div>
+    <span class="logo-text">SQLab</span>
+    <div class="hdr-right">
+      <span class="badge">v1.0 · Groq LLM</span>
+      <div class="conn-badge" id="conn-badge" onclick="openDbPanel()">
+        <div class="conn-dot" id="conn-dot"></div>
+        <span id="conn-label" style="font-family:var(--mono);font-size:10px;">Baza seç</span>
+      </div>
+      <button class="icon-btn" onclick="openSettingsPanel()" title="Dizayn ayarları">⚙</button>
+    </div>
+  </header>
+
+  <div id="messages">
+    <div class="msg-row">
+      <div class="avatar agent">SL</div>
+      <div class="bubble agent">Salam! SQLab-a xoş gəlmisən.
+Başlamaq üçün yuxarıdakı <strong>"Baza seç"</strong> düyməsinə basıb verilənlər bazanı qoş.</div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-row">
+      <input id="input" type="text" placeholder="Sualınızı Azərbaycan dilində yazın..."/>
+      <button id="send-btn" onclick="sendMessage()">Göndər →</button>
+    </div>
+    <div class="hint"><kbd>Enter</kbd> ilə göndər &nbsp;·&nbsp; ⚙ düyməsi ilə dizaynı dəyiş</div>
+  </div>
+</div>
+
+<!-- DB Connect Panel -->
+<div class="overlay" id="db-overlay" onclick="closeBgDb(event)">
+  <div class="panel">
+    <div class="panel-hdr">
+      <span class="panel-title">Baza Bağlantısı</span>
+      <button class="panel-close" onclick="closeDbPanel()">✕</button>
+    </div>
+
+    <div class="db-tabs">
+      <button class="db-tab active" onclick="switchDbTab('pg')">PostgreSQL</button>
+      <button class="db-tab" onclick="switchDbTab('my')">MySQL</button>
+      <button class="db-tab" onclick="switchDbTab('saved')">Saxlanmış</button>
+    </div>
+
+    <!-- PostgreSQL -->
+    <div class="db-panel active" id="dbp-pg">
+      <div class="grid3">
+        <div class="field"><label>Host</label><input type="text" id="pg-host" placeholder="localhost" value="localhost"/></div>
+        <div class="field"><label>Port</label><input type="text" id="pg-port" placeholder="5432" value="5432"/></div>
+        <div class="field"><label>Baza adı</label><input type="text" id="pg-db" placeholder="employees"/></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>İstifadəçi</label><input type="text" id="pg-user" placeholder="postgres" value="postgres"/></div>
+        <div class="field"><label>Şifrə</label>
+          <div class="pass-wrap">
+            <input type="password" id="pg-pass" placeholder="••••••••"/>
+            <button class="eye-btn" onclick="togglePass('pg-pass')">👁</button>
+          </div>
+        </div>
+      </div>
+      <div class="field"><label>Bağlantı adı</label><input type="text" id="pg-name" placeholder="Məs: employees-db"/></div>
+      <div class="db-actions">
+        <button class="db-btn primary" onclick="connectDb('pg')">Qoşul</button>
+        <button class="db-btn" onclick="saveConn('pg')">Saxla</button>
+      </div>
+      <div class="db-status" id="pg-status"></div>
+    </div>
+
+    <!-- MySQL -->
+    <div class="db-panel" id="dbp-my">
+      <div class="grid3">
+        <div class="field"><label>Host</label><input type="text" id="my-host" placeholder="localhost" value="localhost"/></div>
+        <div class="field"><label>Port</label><input type="text" id="my-port" placeholder="3306" value="3306"/></div>
+        <div class="field"><label>Baza adı</label><input type="text" id="my-db" placeholder="testdb"/></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>İstifadəçi</label><input type="text" id="my-user" placeholder="root"/></div>
+        <div class="field"><label>Şifrə</label>
+          <div class="pass-wrap">
+            <input type="password" id="my-pass" placeholder="••••••••"/>
+            <button class="eye-btn" onclick="togglePass('my-pass')">👁</button>
+          </div>
+        </div>
+      </div>
+      <div class="field"><label>Bağlantı adı</label><input type="text" id="my-name" placeholder="Məs: mysql-local"/></div>
+      <div class="db-actions">
+        <button class="db-btn primary" onclick="connectDb('my')">Qoşul</button>
+        <button class="db-btn" onclick="saveConn('my')">Saxla</button>
+      </div>
+      <div class="db-status" id="my-status"></div>
+    </div>
+
+    <!-- Saved -->
+    <div class="db-panel" id="dbp-saved">
+      <div class="saved-list">
+        <div class="saved-title">Saxlanmış bağlantılar</div>
+        <div id="conn-list"></div>
+        <div class="no-saved" id="no-saved">Hələ saxlanmış bağlantı yoxdur.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Panel -->
+<div class="overlay" id="overlay" onclick="closeOnBg(event)">
+  <div class="panel">
+    <div class="panel-hdr">
+      <span class="panel-title">⚙ Dizayn Ayarları</span>
+      <button class="panel-close" onclick="closePanel()">✕</button>
+    </div>
+    <div class="sg"><div class="sg-label">Tema</div><div class="theme-grid" id="theme-grid"></div></div>
+    <div class="divider"></div>
+    <div class="sg"><div class="sg-label">Vurğu Rəngi</div><div class="color-row" id="color-row"></div></div>
+    <div class="divider"></div>
+    <div class="sg"><div class="sg-label">Şrift</div><div class="font-list" id="font-list"></div></div>
+    <div class="divider"></div>
+    <div class="sg"><div class="sg-label">Şrift Ölçüsü</div><div class="size-row" id="size-row"></div></div>
+    <div class="divider"></div>
+    <div class="sg">
+      <div class="sg-label">Yuvarlaq Küncər</div>
+      <div class="slider-row">
+        <input type="range" id="r-slider" min="0" max="20" value="8" oninput="setRadius(this.value)"/>
+        <span class="slider-val" id="r-val">8px</span>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="sg">
+      <div class="toggle-row">
+        <span class="toggle-lbl">Kompakt rejim</span>
+        <div class="toggle" id="compact-tog" onclick="toggleCompact()"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8000/api/v1/agent/chat";
+const SESSION_ID = "b77e0d2a-a55b-4276-98ef-5a09405ebfa6";
+const AGENT_CONFIG_ID = "1fc09dad-a640-49c5-a4ae-16fdb1cb21a3";
+
+let activeDbUrl = "";
+let activeDbType = "";
+let savedConns = JSON.parse(localStorage.getItem("sqlab_conns") || "[]");
+
+function buildUrl(t) {
+  const h = document.getElementById(t+"-host").value || "localhost";
+  const p = document.getElementById(t+"-port").value || (t==="pg"?"5432":"3306");
+  const d = document.getElementById(t+"-db").value || "";
+  const u = document.getElementById(t+"-user").value || "";
+  const pw = document.getElementById(t+"-pass").value;
+  return t==="pg"
+    ? `postgresql://${u}:${pw}@${h}:${p}/${d}`
+    : `mysql://${u}:${pw}@${h}:${p}/${d}`;
+}
+
+function togglePass(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === "password" ? "text" : "password";
+}
+
+function setDbStatus(t, type, msg) {
+  const el = document.getElementById(t+"-status");
+  el.className = "db-status " + type;
+  el.textContent = msg;
+}
+
+async function connectDb(t) {
+  setDbStatus(t, "loading", "Qoşulma yoxlanılır...");
+  const url = buildUrl(t);
+  try {
+    const r = await fetch("http://localhost:8000/health");
+    if (r.ok) {
+      activeDbUrl = url;
+      activeDbType = t;
+      const dbName = document.getElementById(t+"-db").value || (t==="pg"?"PostgreSQL":"MySQL");
+      setDbStatus(t, "ok", "Qoşuldu! Artıq sual verə bilərsiniz.");
+      updateConnBadge(dbName, true);
+      setTimeout(() => closeDbPanel(), 1200);
+    } else {
+      setDbStatus(t, "err", "Backend cavab vermir.");
+    }
+  } catch {
+    setDbStatus(t, "err", "Backend tapılmadı — localhost:8000 açıqdırmı?");
+  }
+}
+
+function saveConn(t) {
+  const url = buildUrl(t);
+  const name = document.getElementById(t+"-name").value || document.getElementById(t+"-db").value || url;
+  const entry = { id: Date.now(), type: t, name, url };
+  savedConns.push(entry);
+  localStorage.setItem("sqlab_conns", JSON.stringify(savedConns));
+  setDbStatus(t, "ok", `"${name}" saxlandı.`);
+  renderSaved();
+}
+
+function renderSaved() {
+  const list = document.getElementById("conn-list");
+  const none = document.getElementById("no-saved");
+  if (!savedConns.length) { list.innerHTML = ""; none.style.display = "block"; return; }
+  none.style.display = "none";
+  list.innerHTML = savedConns.map(c => `
+    <div class="conn-item ${c.url===activeDbUrl?'active-item':''}" onclick="useConn(${c.id})">
+      <div>
+        <div class="conn-name">${c.name}</div>
+        <div class="conn-url">${c.url.replace(/:([^@]+)@/, ":*****@")}</div>
+      </div>
+      <span class="conn-type ${c.type}">${c.type==="pg"?"PostgreSQL":"MySQL"}</span>
+    </div>`).join("");
+}
+
+function useConn(id) {
+  const c = savedConns.find(x => x.id === id);
+  if (!c) return;
+  activeDbUrl = c.url;
+  activeDbType = c.type;
+  updateConnBadge(c.name, true);
+  renderSaved();
+  setTimeout(() => closeDbPanel(), 800);
+}
+
+function updateConnBadge(name, connected) {
+  const badge = document.getElementById("conn-badge");
+  const label = document.getElementById("conn-label");
+  badge.className = "conn-badge" + (connected ? " connected" : "");
+  label.textContent = connected ? name : "Baza seç";
+}
+
+function switchDbTab(t) {
+  ["pg","my","saved"].forEach((id, i) => {
+    document.querySelectorAll(".db-tab")[i].classList.toggle("active", id===t);
+    document.getElementById("dbp-"+id).classList.toggle("active", id===t);
+  });
+  if (t==="saved") renderSaved();
+}
+
+function openDbPanel() { document.getElementById("db-overlay").classList.add("open"); }
+function closeDbPanel() { document.getElementById("db-overlay").classList.remove("open"); }
+function closeBgDb(e) { if (e.target.id==="db-overlay") closeDbPanel(); }
+
+/* ── Settings ── */
+const THEMES = [
+  {id:"dark",   name:"Tünd",   bg:"#080b10",bg1:"#0d1117",bg2:"#131920",bg3:"#1a2230",text:"#e2e8f0",text2:"#94a3b8",text3:"#475569",prev:"#0d1117"},
+  {id:"black",  name:"Siyah",  bg:"#000000",bg1:"#0a0a0a",bg2:"#111111",bg3:"#1a1a1a",text:"#e8e8e8",text2:"#888888",text3:"#444444",prev:"#0a0a0a"},
+  {id:"slate",  name:"Şifer",  bg:"#0f172a",bg1:"#1e293b",bg2:"#263348",bg3:"#334155",text:"#f1f5f9",text2:"#94a3b8",text3:"#64748b",prev:"#1e293b"},
+  {id:"forest", name:"Meşə",   bg:"#0a130a",bg1:"#0f1f0f",bg2:"#162916",bg3:"#1e3a1e",text:"#e8f5e8",text2:"#86a886",text3:"#4a6a4a",prev:"#0f1f0f"},
+  {id:"ocean",  name:"Okean",  bg:"#020b18",bg1:"#051525",bg2:"#082035",bg3:"#0e2d4a",text:"#e0f0ff",text2:"#6da8d4",text3:"#3a6080",prev:"#051525"},
+  {id:"light",  name:"İşıqlı", bg:"#f8fafc",bg1:"#f1f5f9",bg2:"#e8eef5",bg3:"#dde5ef",text:"#0f172a",text2:"#475569",text3:"#94a3b8",prev:"#f1f5f9"},
+];
+const ACCENTS = [
+  {color:"#f0a500"},{color:"#3b82f6"},{color:"#22c55e"},{color:"#a855f7"},
+  {color:"#ef4444"},{color:"#ec4899"},{color:"#06b6d4"},{color:"#f97316"},
+];
+const FONTS = [
+  {id:"ibm",  name:"IBM Plex Mono",   fam:"'IBM Plex Mono',monospace"},
+  {id:"jb",   name:"JetBrains Mono",  fam:"'JetBrains Mono',monospace"},
+  {id:"fira", name:"Fira Code",       fam:"'Fira Code',monospace"},
+  {id:"sys",  name:"System Default",  fam:"monospace"},
+];
+const SIZES = [
+  {id:"xs",label:"XS",val:"11px"},{id:"sm",label:"S",val:"12.5px"},
+  {id:"md",label:"M",val:"13.5px"},{id:"lg",label:"L",val:"15px"},{id:"xl",label:"XL",val:"17px"},
+];
+
+let cfg = JSON.parse(localStorage.getItem("sqlab_cfg")||"null") || {
+  theme:"dark", accent:"#f0a500", font:"ibm", size:"md", radius:8, compact:false
+};
+const R = document.documentElement;
+
+function apply() {
+  const t = THEMES.find(x=>x.id===cfg.theme)||THEMES[0];
+  R.style.setProperty("--bg",t.bg); R.style.setProperty("--bg1",t.bg1);
+  R.style.setProperty("--bg2",t.bg2); R.style.setProperty("--bg3",t.bg3);
+  R.style.setProperty("--text",t.text); R.style.setProperty("--text2",t.text2);
+  R.style.setProperty("--text3",t.text3);
+  R.style.setProperty("--accent",cfg.accent);
+  R.style.setProperty("--accent2", lighten(cfg.accent));
+  R.style.setProperty("--radius", cfg.radius+"px");
+  const f = FONTS.find(x=>x.id===cfg.font)||FONTS[0];
+  R.style.setProperty("--mono", f.fam);
+  const sz = SIZES.find(x=>x.id===cfg.size)||SIZES[2];
+  R.style.setProperty("--fsize", sz.val);
+  const gap = cfg.compact ? "10px" : "18px";
+  const pad = cfg.compact ? "7px 10px" : "11px 14px";
+  document.getElementById("messages").style.gap = gap;
+  document.querySelectorAll(".bubble").forEach(b=>{ b.style.fontSize=sz.val; b.style.padding=pad; });
+  document.querySelectorAll(".theme-card").forEach(c=>c.classList.toggle("active",c.dataset.id===cfg.theme));
+  document.querySelectorAll(".cdot").forEach(c=>c.classList.toggle("active",c.dataset.c===cfg.accent));
+  document.querySelectorAll(".font-opt").forEach(c=>c.classList.toggle("active",c.dataset.id===cfg.font));
+  document.querySelectorAll(".size-btn").forEach(c=>c.classList.toggle("active",c.dataset.id===cfg.size));
+  const rs = document.getElementById("r-slider"); if(rs) rs.value=cfg.radius;
+  const rv = document.getElementById("r-val");    if(rv) rv.textContent=cfg.radius+"px";
+  const ct = document.getElementById("compact-tog"); if(ct) ct.className="toggle"+(cfg.compact?" on":"");
+}
+
+function save() { localStorage.setItem("sqlab_cfg",JSON.stringify(cfg)); apply(); }
+function lighten(h) {
+  try{ const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16); return `rgb(${Math.min(r+40,255)},${Math.min(g+40,255)},${Math.min(b+40,255)})`; }
+  catch{ return h; }
+}
+function setRadius(v){ cfg.radius=parseInt(v); save(); }
+function toggleCompact(){ cfg.compact=!cfg.compact; save(); }
+
+function buildPanel() {
+  const tg = document.getElementById("theme-grid");
+  THEMES.forEach(t=>{
+    const c=document.createElement("div"); c.className="theme-card"; c.dataset.id=t.id;
+    c.innerHTML=`<div class="theme-prev" style="background:${t.prev}"></div><span class="theme-name">${t.name}</span>`;
+    c.onclick=()=>{ cfg.theme=t.id; save(); }; tg.appendChild(c);
+  });
+  const cr = document.getElementById("color-row");
+  ACCENTS.forEach(a=>{
+    const d=document.createElement("div"); d.className="cdot"; d.dataset.c=a.color;
+    d.style.background=a.color; d.onclick=()=>{ cfg.accent=a.color; save(); }; cr.appendChild(d);
+  });
+  const fl = document.getElementById("font-list");
+  FONTS.forEach(f=>{
+    const d=document.createElement("div"); d.className="font-opt"; d.dataset.id=f.id;
+    d.style.fontFamily=f.fam; d.textContent=f.name;
+    d.onclick=()=>{ cfg.font=f.id; save(); }; fl.appendChild(d);
+  });
+  const sr = document.getElementById("size-row");
+  SIZES.forEach(s=>{
+    const b=document.createElement("button"); b.className="size-btn"; b.dataset.id=s.id;
+    b.textContent=s.label; b.onclick=()=>{ cfg.size=s.id; save(); }; sr.appendChild(b);
+  });
+}
+
+function openSettingsPanel(){ document.getElementById("overlay").classList.add("open"); }
+function closePanel(){ document.getElementById("overlay").classList.remove("open"); }
+function closeOnBg(e){ if(e.target.id==="overlay") closePanel(); }
+
+/* ── Chat ── */
+const msgBox = document.getElementById("messages");
+const input  = document.getElementById("input");
+const btn    = document.getElementById("send-btn");
+input.addEventListener("keydown",e=>{ if(e.key==="Enter") sendMessage(); });
+
+function addRow(cls) {
+  const row=document.createElement("div"); row.className="msg-row"+(cls==="user"?" user":"");
+  const av=document.createElement("div"); av.className="avatar "+cls; av.textContent=cls==="user"?"Siz":"SL";
+  const bub=document.createElement("div"); bub.className="bubble "+cls;
+  row.appendChild(av); row.appendChild(bub);
+  msgBox.appendChild(row); msgBox.scrollTop=msgBox.scrollHeight;
+  return bub;
+}
+
+function renderAnswer(answer) {
+  const bub=addRow("agent");
+  const sqlMatch=answer.match(/```sql\s*([\s\S]*?)\s*```/);
+  const tableMatch=answer.match(/📊 Real nəticə \((\d+) sətir\):\n([\s\S]+?)(?:\n\.\.\..*)?$/);
+  let explain=answer;
+  if(sqlMatch)   explain=explain.replace(/```sql[\s\S]*?```/,"");
+  if(tableMatch) explain=explain.replace(/📊 Real nəticə[\s\S]*/,"");
+  explain=explain.replace(/\[SQL_EXECUTE\][\s\S]*/,"").trim();
+  if(explain) bub.textContent=explain;
+  if(sqlMatch){
+    const sd=document.createElement("div"); sd.className="sql-block";
+    sd.textContent=sqlMatch[1].trim(); bub.appendChild(sd);
+  }
+  if(tableMatch){
+    const lines=tableMatch[2].split("\n").filter(l=>l&&!l.match(/^-+$/));
+    if(lines.length>=1){
+      const cols=lines[0].split(" | ").map(c=>c.trim());
+      const datas=lines.slice(1);
+      const wrap=document.createElement("div"); wrap.className="result-wrap";
+      const tbl=document.createElement("table"); tbl.className="result";
+      const thead=tbl.createTHead(); const hr=thead.insertRow();
+      cols.forEach(c=>{ const th=document.createElement("th"); th.textContent=c; hr.appendChild(th); });
+      const tbody=tbl.createTBody();
+      datas.forEach(line=>{
+        if(!line.trim()) return;
+        const tr=tbody.insertRow();
+        line.split(" | ").map(v=>v.trim()).forEach(v=>{ const td=tr.insertCell(); td.textContent=v; });
+      });
+      wrap.appendChild(tbl); bub.appendChild(wrap);
+      const info=document.createElement("div"); info.className="result-info";
+      info.textContent=`✓ ${tableMatch[1]} sətir`; bub.appendChild(info);
+
+      if(cols.length>=2){
+        const rows2=[];
+        datas.forEach(line=>{ if(line.trim()) rows2.push(line.split(" | ").map(v=>v.trim())); });
+        const chartId="ch"+Date.now();
+        const cWrap=document.createElement("div"); cWrap.className="chart-wrap"; cWrap.id=chartId+"w";
+        const canvas=document.createElement("canvas"); canvas.id=chartId; cWrap.appendChild(canvas);
+        bub.appendChild(cWrap);
+        const btn=document.createElement("button"); btn.className="chart-btn"; btn.textContent="Qrafik goster";
+        let ci=null;
+        btn.onclick=function(){
+          const cw=document.getElementById(chartId+"w");
+          const show=cw.classList.toggle("show");
+          btn.textContent=show?"Cedvel goster":"Qrafik goster";
+          if(show&&!ci){
+            const labels=rows2.map(r=>r[0]);
+            const vals=rows2.map(r=>parseFloat(r[1])||0);
+            const isLine=/\d{4}|ay|month|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(labels.join(" "));
+            const ac=getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#f0a500";
+            ci=new Chart(canvas,{
+              type:isLine?"line":"bar",
+              data:{labels,datasets:[{label:cols[1],data:vals,backgroundColor:isLine?"transparent":ac+"44",borderColor:ac,borderWidth:2,pointBackgroundColor:ac,pointRadius:isLine?4:0,tension:0.4,fill:isLine}]},
+              options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#94a3b8",font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}},y:{ticks:{color:"#94a3b8",font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}}}}
+            });
+          }
+        };
+        bub.appendChild(btn);
+
+      const expRow = document.createElement("div"); expRow.className = "export-row";
+
+      const csvBtn = document.createElement("button"); csvBtn.className = "exp-btn";
+      csvBtn.innerHTML = "&#8659; CSV"; 
+      csvBtn.onclick = () => exportCSV(cols, rows2, "sqlab_result");
+      expRow.appendChild(csvBtn);
+
+      const copyBtn = document.createElement("button"); copyBtn.className = "exp-btn";
+      copyBtn.innerHTML = "&#9112; Kopyala";
+      copyBtn.onclick = () => copyTable(cols, rows2);
+      expRow.appendChild(copyBtn);
+
+      const pngBtn = document.createElement("button"); pngBtn.className = "exp-btn";
+      pngBtn.innerHTML = "&#8659; PNG";
+      pngBtn.onclick = () => exportChartPNG(chartId, "sqlab_chart");
+      expRow.appendChild(pngBtn);
+
+      bub.appendChild(expRow);
+      }
+    }
+  }
+  const sz=SIZES.find(x=>x.id===cfg.size)||SIZES[2];
+  bub.style.fontSize=sz.val;
+  bub.style.padding=cfg.compact?"7px 10px":"11px 14px";
+}
+
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text) return;
+  if (!activeDbUrl) {
+    const b = addRow("agent");
+    b.textContent = "Əvvəlcə 'Baza seç' düyməsinə basıb verilənlər bazanızı qoşun.";
+    return;
+  }
+  input.value = ""; btn.disabled = true;
+  addRow("user").textContent = text;
+  const loading = addRow("agent"); loading.classList.add("loading");
+  loading.textContent = "Analiz edilir...";
+  try {
+    const resp = await fetch(API, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        session_id: SESSION_ID,
+        agent_config_id: AGENT_CONFIG_ID,
+        message: text,
+        db_url: activeDbUrl,
+        source_type: activeDbType === "my" ? "mysql" : "postgresql"
+      })
+    });
+    const data = await resp.json();
+    loading.remove(); renderAnswer(data.answer);
+  } catch(e) {
+    loading.textContent = "Xəta: serverə qoşulmaq mümkün olmadı.";
+    loading.classList.remove("loading");
+  }
+  btn.disabled = false; input.focus();
+  msgBox.scrollTop = msgBox.scrollHeight;
+}
+
+function exportCSV(cols, rows2, filename) {
+  const header = cols.join(",");
+  const body = rows2.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
+  const blob = new Blob([header+"\n"+body], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = (filename||"sqlab_result")+".csv"; a.click();
+}
+
+function copyTable(cols, rows2) {
+  const header = cols.join("\t");
+  const body = rows2.map(r => r.join("\t")).join("\n");
+  navigator.clipboard.writeText(header+"\n"+body).then(()=>{
+    const el = document.getElementById("copy-toast");
+    if(el){ el.style.opacity="1"; setTimeout(()=>el.style.opacity="0",1500); }
+  });
+}
+
+function exportChartPNG(chartId, filename) {
+  const canvas = document.getElementById(chartId);
+  if(!canvas){ alert("Əvvəlcə qrafiki açın"); return; }
+  const a = document.createElement("a"); a.href = canvas.toDataURL("image/png");
+  a.download = (filename||"sqlab_chart")+".png"; a.click();
+}
+
+buildPanel();
+apply();
+</script>
+<div id="copy-toast" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg3);border:1px solid var(--border2);color:var(--text2);font-family:var(--mono);font-size:11px;padding:6px 16px;border-radius:6px;opacity:0;transition:opacity .3s;pointer-events:none;">Kopyalandı!</div></body>
+</html>

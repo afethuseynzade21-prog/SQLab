@@ -1,0 +1,128 @@
+version: "1.0"
+database: "employees"
+
+tables:
+  employees:
+    label: "İnstafarlar"
+    description: "İnstafarlar haqqında məlumatlar"
+    metrics:
+      - "emp_no → İstinad nömrəsi"
+      - "birth_date → Doğum tarixi"
+      - "first_name → Ad"
+      - "last_name → Soyad"
+      - "gender → Cins"
+      - "hire_date → İşə qəbul tarixi"
+
+  departments:
+    label: "Departamentlər"
+    description: "Departamentlər haqqında məlumatlar"
+    metrics:
+      - "dept_no → Departament nömrəsi"
+      - "dept_name → Departament adı"
+
+  dept_emp:
+    label: "Departament-İstifadəçi"
+    description: "İnstafarlar departamentləri"
+    metrics:
+      - "emp_no → İstinad nömrəsi"
+      - "dept_no → Departament nömrəsi"
+      - "from_date → Başlama tarixi"
+      - "to_date → Bitmə tarixi"
+
+  dept_manager:
+    label: "Departament-Menecer"
+    description: "Departament menecerləri"
+    metrics:
+      - "dept_no → Departament nömrəsi"
+      - "emp_no → İstinad nömrəsi"
+      - "from_date → Başlama tarixi"
+      - "to_date → Bitmə tarixi"
+
+  salaries:
+    label: "Maaşlar"
+    description: "İnstafar maaşları"
+    metrics:
+      - "emp_no → İstinad nömrəsi"
+      - "salary → Maaş"
+      - "from_date → Başlama tarixi"
+      - "to_date → Bitmə tarixi"
+
+  titles:
+    label: "Vəzifələr"
+    description: "İnstafar vəzifələri"
+    metrics:
+      - "emp_no → İstinad nömrəsi"
+      - "title → Vəzifə"
+      - "from_date → Başlama tarixi"
+      - "to_date → Bitmə tarixi"
+
+metrics:
+  ortalama_maas:
+    label: "Ortalama maaş"
+    formula: "AVG(salaries.salary)"
+
+  calisilan_yil_sayi:
+    label: "Çalışılan il sayı"
+    formula: "DATEDIFF(MAX(salaries.to_date), MIN(salaries.from_date)) / 365"
+
+  departament_sayi:
+    label: "Departament sayı"
+    formula: "COUNT(DISTINCT departments.dept_no)"
+
+  istifadeci_sayi:
+    label: "İstifadəçi sayı"
+    formula: "COUNT(DISTINCT employees.emp_no)"
+
+  ortalama_yas:
+    label: "Ortalama yaş"
+    formula: "AVG(DATEDIFF(CURRENT_DATE, employees.birth_date)) / 365"
+
+  menecer_sayi:
+    label: "Menecer sayı"
+    formula: "COUNT(DISTINCT dept_manager.emp_no)"
+
+kpis:
+  kpi1:
+    label: "İstifadəçi sayı artımı"
+    formula: "SELECT COUNT(*) FROM employees WHERE hire_date > CURRENT_DATE - INTERVAL 1 YEAR"
+    description: "Son bir ildə çalışanda olan artırma"
+
+  kpi2:
+    label: "Maaş artımı"
+    formula: "SELECT AVG(salary) FROM salaries WHERE from_date > CURRENT_DATE - INTERVAL 1 YEAR"
+    description: "Son bir ildə maaş artımı"
+
+  kpi3:
+    label: "Departament sayı artımı"
+    formula: "SELECT COUNT(DISTINCT dept_no) FROM departments WHERE dept_no NOT IN (SELECT dept_no FROM dept_manager)"
+    description: "Aktiv olmayan departamentlərin sayı"
+
+  kpi4:
+    label: "Vəzifə dəyişikliyi"
+    formula: "SELECT COUNT(DISTINCT title) FROM titles"
+    description: "İnstafarlar arasında mövcud olan vəzifələrin sayı"
+
+  kpi5:
+    label: "Ortalama maaş artımı"
+    formula: "SELECT AVG(salary) FROM salaries WHERE from_date > CURRENT_DATE - INTERVAL 1 YEAR"
+    description: "Son bir ildə ortalama maaş artımı"
+
+common_joins:
+  - description: "İstifadəçi və departament birləşməsi"
+    join: "employees → dept_emp (emp_no)"
+
+  - description: "Departament və departament-menecer birləşməsi"
+    join: "departments → dept_manager (dept_no)"
+
+  - description: "İstifadəçi və maaş birləşməsi"
+    join: "employees → salaries (emp_no)"
+
+common_questions:
+  - q: "İstifadəçi sayı necədir?"
+    hint: "SELECT COUNT(*) FROM employees"
+
+  - q: "Departamentlərin sayı necədir?"
+    hint: "SELECT COUNT(DISTINCT dept_no) FROM departments"
+
+  - q: "Maaşların ortalama məbləği necədir?"
+    hint: "SELECT AVG(salary) FROM salaries"

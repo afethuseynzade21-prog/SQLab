@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: sql_agent_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:root@db:5432/sql_agent_db
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      - db
+    env_file:
+      - .env
+
+volumes:
+  pgdata:

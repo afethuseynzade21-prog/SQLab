@@ -1,0 +1,223 @@
+version: "1.0"
+database: "olist_db"
+
+azerbaijani_glossary:
+  - "sifariş = order (olist_orders_dataset)"
+  - "müştəri = customer (olist_customers_dataset)"
+  - "məhsul = product (olist_products_dataset)"
+  - "satıcı = seller (olist_sellers_dataset)"
+  - "ödəniş = payment (olist_order_payments_dataset)"
+  - "rəy = review (olist_order_reviews_dataset)"
+  - "çatdırılma vaxtı = order_delivered_customer_date - order_purchase_timestamp"
+  - "gəlir = price + freight_value"
+  - "reytinq = review_score"
+  - "şəhər = customer_city"
+  - "əyalət = customer_state"
+  - "region = customer_state və ya customer_city"
+  - "kateqoriya = product_category_name"
+  - "qiymət = price"
+  - "çatdırılmış = order_status = 'delivered'"
+  - "ləğv edilmiş = order_status = 'canceled'"
+  - "gözləyən = order_status = 'processing' və ya 'pending'"
+  - "aylıq = EXTRACT(MONTH FROM order_purchase_timestamp)"
+  - "illik = EXTRACT(YEAR FROM order_purchase_timestamp)"
+  - "ortalama = AVG()"
+  - "ümumi = SUM() və ya COUNT(*)"
+  - "ən çox = ORDER BY ... DESC LIMIT n"
+  - "ən az = ORDER BY ... ASC LIMIT n"
+
+tables:
+  olist_customers_dataset:
+    label: "Müştərilər"
+    description: "Müştərilərin məlumatları — şəhər, əyalət, poçt kodu"
+    metrics:
+      - "customer_id → Müştəri ID (sifariş ilə bağlı unikal ID)"
+      - "customer_unique_id → Həqiqi unikal müştəri ID"
+      - "customer_zip_code_prefix → Poçt indeksi"
+      - "customer_city → Şəhər adı"
+      - "customer_state → Əyalət kodu (SP, RJ, MG...)"
+
+  olist_order_items_dataset:
+    label: "Sifariş məhsulları"
+    description: "Hər sifarişdəki məhsullar, qiymət və çatdırılma məlumatları"
+    metrics:
+      - "order_id → Sifariş ID"
+      - "order_item_id → Sifariş daxilindəki məhsul sıra nömrəsi"
+      - "product_id → Məhsul ID"
+      - "seller_id → Satıcı ID"
+      - "shipping_limit_date → Çatdırılma son tarixi"
+      - "price → Məhsul qiyməti (gəlir hesablamaq üçün)"
+      - "freight_value → Çatdırılma dəyəri"
+
+  olist_order_payments_dataset:
+    label: "Sifariş ödənişləri"
+    description: "Ödəniş növü, məbləği, hissə sayı"
+    metrics:
+      - "order_id → Sifariş ID"
+      - "payment_sequential → Ödəniş ardıcıllığı"
+      - "payment_type → Ödəniş növü (credit_card, boleto, voucher, debit_card)"
+      - "payment_installments → Taksit sayı"
+      - "payment_value → Ödəniş məbləği"
+
+  olist_order_reviews_dataset:
+    label: "Müştəri rəyləri"
+    description: "Müştəri məmnuniyyəti, reytinq 1-5 arası"
+    metrics:
+      - "review_id → Rəy ID"
+      - "order_id → Sifariş ID"
+      - "review_score → Reytinq (1=pis, 5=əla)"
+      - "review_comment_title → Rəy başlığı"
+      - "review_comment_message → Rəy mətni"
+      - "review_creation_date → Rəy yaradılma tarixi"
+      - "review_answer_timestamp → Rəy cavab tarixi"
+
+  olist_orders_dataset:
+    label: "Sifarişlər"
+    description: "Sifarişlərin əsas cədvəli — status, tarixlər, müştəri"
+    metrics:
+      - "order_id → Sifariş ID (əsas açar)"
+      - "customer_id → Müştəri ID"
+      - "order_status → Status: shipped, delivered, canceled, processing, invoiced, unavailable, approved, created"
+      - "order_purchase_timestamp → Sifariş tarixi (alış vaxtı)"
+      - "order_approved_at → Təsdiq tarixi"
+      - "order_delivered_carrier_date → Kuryer götürmə tarixi"
+      - "order_delivered_customer_date → Müştəriyə çatdırılma tarixi"
+      - "order_estimated_delivery_date → Təxmini çatdırılma tarixi"
+
+  olist_products_dataset:
+    label: "Məhsullar"
+    description: "Məhsul kateqoriyası və fiziki ölçüləri"
+    metrics:
+      - "product_id → Məhsul ID"
+      - "product_category_name → Kateqoriya adı (Portuqalca)"
+      - "product_name_length → Ad uzunluğu (simvol sayı)"
+      - "product_description_length → Təsvir uzunluğu"
+      - "product_photos_qty → Şəkil sayı"
+      - "product_weight_g → Çəki (qram)"
+      - "product_length_cm → Uzunluq (sm)"
+      - "product_height_cm → Hündürlük (sm)"
+      - "product_width_cm → En (sm)"
+
+  olist_sellers_dataset:
+    label: "Satıcılar"
+    description: "Satıcıların coğrafi məlumatları"
+    metrics:
+      - "seller_id → Satıcı ID"
+      - "seller_zip_code_prefix → Poçt indeksi"
+      - "seller_city → Satıcı şəhəri"
+      - "seller_state → Satıcı əyaləti"
+
+  product_category_name_translation:
+    label: "Kateqoriya tərcüməsi"
+    description: "Portuqalca kateqoriya adlarının ingiliscə qarşılığı"
+    metrics:
+      - "product_category_name → Portuqalca kateqoriya"
+      - "product_category_name_english → İngiliscə kateqoriya"
+
+metrics:
+  total_orders:
+    label: "Ümumi sifariş sayı"
+    formula: "SELECT COUNT(*) FROM olist_orders_dataset"
+
+  total_revenue:
+    label: "Ümumi gəlir"
+    formula: "SELECT SUM(price + freight_value) FROM olist_order_items_dataset"
+
+  total_customers:
+    label: "Unikal müştəri sayı"
+    formula: "SELECT COUNT(DISTINCT customer_unique_id) FROM olist_customers_dataset"
+
+  average_order_value:
+    label: "Ortalama sifariş dəyəri"
+    formula: "SELECT AVG(price + freight_value) FROM olist_order_items_dataset"
+
+  delivery_time_days:
+    label: "Ortalama çatdırılma müddəti (gün)"
+    formula: "SELECT AVG(EXTRACT(EPOCH FROM (order_delivered_customer_date - order_purchase_timestamp))/86400) FROM olist_orders_dataset WHERE order_delivered_customer_date IS NOT NULL"
+
+  delivery_rate:
+    label: "Çatdırılma faizi"
+    formula: "SELECT ROUND(COUNT(*) FILTER (WHERE order_status='delivered') * 100.0 / COUNT(*), 2) FROM olist_orders_dataset"
+
+  avg_review_score:
+    label: "Ortalama reytinq"
+    formula: "SELECT ROUND(AVG(review_score), 2) FROM olist_order_reviews_dataset"
+
+kpis:
+  top_cities:
+    label: "Ən çox müştərili şəhərlər"
+    formula: "SELECT customer_city, COUNT(*) as sayi FROM olist_customers_dataset GROUP BY customer_city ORDER BY sayi DESC LIMIT 10"
+    description: "Müştəri sayına görə ilk 10 şəhər"
+
+  top_categories:
+    label: "Ən çox satılan kateqoriyalar"
+    formula: "SELECT p.product_category_name, COUNT(*) as satis FROM olist_order_items_dataset oi JOIN olist_products_dataset p ON oi.product_id = p.product_id GROUP BY p.product_category_name ORDER BY satis DESC LIMIT 10"
+    description: "Satış sayına görə ilk 10 kateqoriya"
+
+  monthly_orders:
+    label: "Aylıq sifariş trendi"
+    formula: "SELECT EXTRACT(YEAR FROM order_purchase_timestamp) as il, EXTRACT(MONTH FROM order_purchase_timestamp) as ay, COUNT(*) as sifaris_sayi FROM olist_orders_dataset GROUP BY il, ay ORDER BY il, ay"
+    description: "Aylıq sifariş sayı"
+
+  delivery_vs_review:
+    label: "Çatdırılma vaxtı və reytinq əlaqəsi"
+    formula: "SELECT r.review_score, ROUND(AVG(EXTRACT(EPOCH FROM (o.order_delivered_customer_date - o.order_purchase_timestamp))/86400), 1) as orta_gun FROM olist_orders_dataset o JOIN olist_order_reviews_dataset r ON o.order_id = r.order_id WHERE o.order_delivered_customer_date IS NOT NULL GROUP BY r.review_score ORDER BY r.review_score"
+    description: "Reytinq ilə çatdırılma müddəti arasındakı əlaqə"
+
+  top_sellers:
+    label: "Ən çox satan satıcılar"
+    formula: "SELECT seller_id, COUNT(*) as satis, ROUND(SUM(price),2) as gelir FROM olist_order_items_dataset GROUP BY seller_id ORDER BY satis DESC LIMIT 10"
+    description: "Satış sayına görə ilk 10 satıcı"
+
+common_joins:
+  - description: "Sifarişlər + Müştərilər (şəhər, region məlumatı)"
+    join: "olist_orders_dataset → olist_customers_dataset (customer_id)"
+
+  - description: "Sifarişlər + Sifariş məhsulları (qiymət, məhsul)"
+    join: "olist_orders_dataset → olist_order_items_dataset (order_id)"
+
+  - description: "Sifariş məhsulları + Məhsullar (kateqoriya)"
+    join: "olist_order_items_dataset → olist_products_dataset (product_id)"
+
+  - description: "Sifariş məhsulları + Satıcılar"
+    join: "olist_order_items_dataset → olist_sellers_dataset (seller_id)"
+
+  - description: "Sifarişlər + Rəylər (reytinq, məmnuniyyət)"
+    join: "olist_orders_dataset → olist_order_reviews_dataset (order_id)"
+
+  - description: "Sifarişlər + Ödənişlər"
+    join: "olist_orders_dataset → olist_order_payments_dataset (order_id)"
+
+  - description: "Məhsullar + Kateqoriya tərcüməsi (ingiliscə ad)"
+    join: "olist_products_dataset → product_category_name_translation (product_category_name)"
+
+common_questions:
+  - q: "Ümumi sifariş sayı"
+    hint: "SELECT COUNT(*) FROM olist_orders_dataset"
+
+  - q: "Ən çox müştərili şəhər"
+    hint: "SELECT customer_city, COUNT(*) as sayi FROM olist_customers_dataset GROUP BY customer_city ORDER BY sayi DESC LIMIT 10"
+
+  - q: "Aylıq sifariş trendi"
+    hint: "SELECT EXTRACT(MONTH FROM order_purchase_timestamp) as ay, COUNT(*) as sayi FROM olist_orders_dataset GROUP BY ay ORDER BY ay"
+
+  - q: "Ortalama çatdırılma vaxtı"
+    hint: "SELECT AVG(EXTRACT(EPOCH FROM (order_delivered_customer_date - order_purchase_timestamp))/86400) as gun FROM olist_orders_dataset WHERE order_delivered_customer_date IS NOT NULL"
+
+  - q: "Reytinq üzrə ortalama çatdırılma"
+    hint: "SELECT r.review_score, AVG(EXTRACT(EPOCH FROM (o.order_delivered_customer_date - o.order_purchase_timestamp))/86400) as gun FROM olist_orders_dataset o JOIN olist_order_reviews_dataset r ON o.order_id = r.order_id WHERE o.order_delivered_customer_date IS NOT NULL GROUP BY r.review_score ORDER BY r.review_score"
+
+  - q: "Ən çox satılan kateqoriyalar"
+    hint: "SELECT p.product_category_name, COUNT(*) as satis FROM olist_order_items_dataset oi JOIN olist_products_dataset p ON oi.product_id = p.product_id GROUP BY p.product_category_name ORDER BY satis DESC LIMIT 10"
+
+  - q: "Ödəniş növlərinin paylanması"
+    hint: "SELECT payment_type, COUNT(*) as sayi, ROUND(SUM(payment_value),2) as umumi FROM olist_order_payments_dataset GROUP BY payment_type ORDER BY sayi DESC"
+
+  - q: "Çatdırılmış sifarişlərin faizi"
+    hint: "SELECT ROUND(COUNT(*) FILTER (WHERE order_status='delivered') * 100.0 / COUNT(*), 2) as faiz FROM olist_orders_dataset"
+
+  - q: "Hər regionda ən çox satılan kateqoriya"
+    hint: "WITH s AS (SELECT c.customer_state as region, p.product_category_name as cat, COUNT(*) as n FROM olist_order_items_dataset oi JOIN olist_orders_dataset o ON oi.order_id=o.order_id JOIN olist_customers_dataset c ON o.customer_id=c.customer_id JOIN olist_products_dataset p ON oi.product_id=p.product_id GROUP BY region, cat) SELECT region, cat, n FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY region ORDER BY n DESC) as rn FROM s) t WHERE rn=1"
+
+  - q: "Ümumi gəlir"
+    hint: "SELECT ROUND(SUM(price + freight_value), 2) as umumi_gelir FROM olist_order_items_dataset"
