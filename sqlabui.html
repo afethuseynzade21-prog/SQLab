@@ -31,6 +31,10 @@
   .conn-badge.connected .conn-dot{background:var(--green);box-shadow:0 0 5px var(--green);}
   .icon-btn{width:30px;height:30px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);color:var(--text2);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all .15s;}
   .icon-btn:hover{background:var(--bg3);border-color:var(--accent);color:var(--accent);}
+  .monitor-btn{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:6px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);color:var(--green);font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;letter-spacing:.04em;}
+  .monitor-btn:hover{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.6);box-shadow:0 0 12px rgba(34,197,94,.2);}
+  .monitor-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.6;transform:scale(1.3);}}
 
   #messages{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:18px;scrollbar-width:thin;scrollbar-color:var(--bg3) transparent;}
   #messages::-webkit-scrollbar{width:4px;}
@@ -172,6 +176,7 @@
         <span id="conn-label" style="font-family:var(--mono);font-size:10px;">Baza seç</span>
       </div>
       <button class="icon-btn" onclick="openSettingsPanel()" title="Dizayn ayarları">⚙</button>
+      <button class="monitor-btn" onclick="window.open('http://localhost:8501','_blank')" title="Monitor Dashboard"><span class="monitor-dot"></span>Monitor</button>
     </div>
   </header>
 

@@ -224,7 +224,7 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatRes
                         header = " | ".join(cols)
                         sep = "-" * len(header)
                         rows_text = "\n".join([" | ".join(str(v) for v in r.values()) for r in result_rows[:20]])
-                        real_result = f"\n\n Real neticé ({len(result_rows)} setir):\n{header}\n{sep}\n{rows_text}"
+                        real_result = f"\n\n📊 Real nəticə ({len(result_rows)} sətir):\n{header}\n{sep}\n{rows_text}"
                         if len(result_rows) > 20:
                             real_result += f"\n... +{len(result_rows)-20} setir"
                     else:
