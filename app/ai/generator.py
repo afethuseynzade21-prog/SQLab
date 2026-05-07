@@ -1,6 +1,7 @@
 """
 ai/gen.py — LLM SQL Generation Engine
-PostgreSQL, MySQL və Excel/CSV dəstəyi ilə.
+Groq API ilə natural language → SQL çevirməsi.
+Semantic layer dəstəyi ilə.
 """
 
 import os
@@ -19,40 +20,13 @@ from ai.val import validate_sql
 
 router = APIRouter()
 
-# ── Kalıcı söhbət yaddaşı (PostgreSQL-də saxlanılır) ─────────
-_MAX_HISTORY = 5
-import json as _json
 
-def get_history(session_id: str) -> list[dict]:
-    try:
-        p = pathlib.Path(f"/app/memory_{session_id}.json")
-        if not p.exists():
-            return []
-        data = _json.loads(p.read_text())
-        return data[-_MAX_HISTORY * 2:]
-    except Exception:
-        return []
-
-def add_to_history(session_id: str, role: str, content_text: str) -> None:
-    try:
-        p = pathlib.Path(f"/app/memory_{session_id}.json")
-        data = []
-        if p.exists():
-            data = _json.loads(p.read_text())
-        data.append({"role": role, "content": content_text[:2000]})
-        data = data[-_MAX_HISTORY * 2:]
-        p.write_text(_json.dumps(data, ensure_ascii=False))
-    except Exception as e:
-        print(f"MEMORY WRITE ERROR: {e}")
-
-
+# ── Pydantic modellər ──────────────────────────────────────
 class ChatRequest(BaseModel):
     session_id: str
     message: str
     agent_config_id: str
     db_url: Optional[str] = None
-    source_type: Optional[str] = "postgresql"
-    file_path: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -60,14 +34,15 @@ class ChatResponse(BaseModel):
     query_log_id: Optional[str]
     answer: str
     status: str
-    source_type: Optional[str] = None
 
 
+# ── Köməkçi funksiyalar ────────────────────────────────────
 def get_db_name(db_url: str) -> str:
     return db_url.rstrip("/").split("/")[-1]
 
 
 def load_semantic(db_url: str) -> str:
+    """Semantic YAML faylını yükləyir."""
     try:
         import yaml
         db_name = get_db_name(db_url)
@@ -81,41 +56,102 @@ def load_semantic(db_url: str) -> str:
             lines.append("\nCədvəl təsvirləri:")
             for tbl, info in data["tables"].items():
                 lines.append(f"  {tbl} -> {info.get('label', '')}: {info.get('description', '')}")
+                if "metrics" in info:
+                    for m in info["metrics"]:
+                        lines.append(f"    - {m}")
+        if "metrics" in data:
+            lines.append("\nBiznes metrikleri:")
+            for key, m in data["metrics"].items():
+                lines.append(f"  {m['label']}: {m['formula']}")
         if "kpis" in data:
             lines.append("\nKPI Definitions:")
             for key, kpi in data["kpis"].items():
                 lines.append(f"  {kpi['label']}: {kpi['description']}")
+                lines.append(f"    Formula: {kpi['formula']}")
+        if "common_joins" in data:
+            lines.append("\nÜmumi birləşmələr:")
+            for j in data["common_joins"]:
+                lines.append(f"  {j['description']}: {j['join']}")
+        if "common_questions" in data:
+            lines.append("\nTez-tez suallar:")
+            for q in data["common_questions"]:
+                lines.append(f"  '{q['q']}' -> {q['hint']}")
         return "\n".join(lines)
     except Exception:
         return ""
 
 
 async def generate_semantic(db_url: str, schema_text: str, api_key: str) -> None:
+    """LLM ilə semantic layer yaradır."""
     db_name = get_db_name(db_url)
     path = Path(__file__).parent.parent / f"semantic_{db_name}.yaml"
     if path.exists():
         return
     prompt = f"""Bu verilənlər bazası sxemi üçün YAML formatında semantic layer yarat.
+
 {schema_text}
-YALNIZ YAML yaz."""
+
+Aşağıdakı YAML strukturunu istifadə et:
+
+version: "1.0"
+database: "{db_name}"
+
+tables:
+  CEDVEL_ADI:
+    label: "Azərbaycan dilində ad"
+    description: "Cədvəlin nə saxladığı"
+    metrics:
+      - "sutun_adi → nə deməkdir"
+
+metrics:
+  metrik_adi:
+    label: "Azərbaycan dilində ad"
+    formula: "SQL ifadəsi"
+
+kpis:
+  kpi_adi:
+    label: "Azərbaycan dilində KPI adı"
+    formula: "SELECT ifadəsi"
+    description: "KPI nə ölçür"
+
+common_joins:
+  - description: "Birləşmə izahı"
+    join: "cedvel1 → cedvel2 (açar_sutun)"
+
+common_questions:
+  - q: "Tez-tez soruşulan sual"
+    hint: "SQL ipucu"
+
+VACIB:
+- Hər baza üçün 5-8 real KPI müəyyən et
+- KPI formula-ları həmin bazanın REAL sütun adlarına əsaslanmalıdır
+- YALNIZ YAML yaz, başqa heç nə yazma."""
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": 2000},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 2000,
+                },
                 timeout=30.0,
             )
             data = resp.json()
             if "choices" in data:
-                yaml_text = re.sub(r"```yaml\s*|```\s*", "", data["choices"][0]["message"]["content"])
+                yaml_text = data["choices"][0]["message"]["content"]
+                yaml_text = re.sub(r"```yaml\s*", "", yaml_text)
+                yaml_text = re.sub(r"```\s*", "", yaml_text)
+                yaml_text = yaml_text.strip()
                 with open(path, "w", encoding="utf-8") as f:
-                    f.write(yaml_text.strip())
+                    f.write(yaml_text)
     except Exception as e:
         print(f"SEMANTIC GENERATE XETASI: {e}")
 
 
-async def get_postgresql_schema(db_url: str):
+async def get_schema(db_url: str) -> tuple[str, asyncpg.Connection | None]:
+    """Verilənlər bazasının sxemini asyncpg ilə oxuyur."""
     try:
         conn = await asyncpg.connect(db_url)
         col_rows = await conn.fetch("""
@@ -130,182 +166,191 @@ async def get_postgresql_schema(db_url: str):
             if t not in schema:
                 schema[t] = []
             schema[t].append(f"{r['column_name']} ({r['data_type']})")
-
-        schema_text = "=== PostgreSQL VERİLƏNLƏR BAZASI SXEMİ ===\n"
+        schema_text = "=== VERILƏNLƏR BAZASI SXEMİ ===\n"
         for tbl, cols in schema.items():
             schema_text += f"\n{tbl}:\n  " + "\n  ".join(cols) + "\n"
-            try:
-                sample = await conn.fetch(f"SELECT * FROM {tbl} LIMIT 2")
-                if sample:
-                    col_names = list(sample[0].keys())
-                    schema_text += f"  -- Nümunə ({tbl}):\n"
-                    for row in sample:
-                        vals = " | ".join(str(v)[:30] if v is not None else "NULL" for v in row.values())
-                        schema_text += f"  -- {vals}\n"
-            except Exception:
-                pass
         return schema_text, conn
     except Exception as e:
-        return f"PostgreSQL bağlantı xətası: {e}", None
+        return f"Baza qoşulma xətası: {e}", None
 
 
-async def call_llm(prompt: str, api_key: str, history: list[dict] | None = None) -> str:
-    messages = []
-    if history:
-        messages.extend(history[:-1])
-    messages.append({"role": "user", "content": prompt})
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile", "messages": messages, "max_tokens": 1500},
-            timeout=30.0,
-        )
-        data = resp.json()
-        if "choices" in data:
-            return data["choices"][0]["message"]["content"]
-        return "API xetasi: " + str(data.get("error", data))
-
-
-def format_rows(rows: list[dict], total: int) -> str:
-    if not rows:
-        return "\n\n📊 Nəticə: boş"
-    cols = list(rows[0].keys())
-    header = " | ".join(cols)
-    sep = "-" * len(header)
-    rows_text = "\n".join([" | ".join(str(v) for v in r.values()) for r in rows[:20]])
-    result = f"\n\n📊 Real nəticə ({total} sətir):\n{header}\n{sep}\n{rows_text}"
-    if total > 20:
-        result += f"\n... +{total - 20} sətir"
-    return result
-
-
+# ── Ana endpoint ───────────────────────────────────────────
 @router.post("/chat", response_model=ChatResponse, summary="Agent-ə sual ver")
 async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
     api_key = os.environ.get("GROQ_API_KEY", "")
-    source_type = (body.source_type or "postgresql").lower()
 
+    conn: asyncpg.Connection | None = None
+    schema_info = ""
+    semantic_info = ""
+
+    # Schema + semantic layer yüklə
+    if body.db_url:
+        schema_info, conn = await get_schema(body.db_url)
+        db_name = get_db_name(body.db_url)
+        sem_path = Path(__file__).parent.parent / f"semantic_{db_name}.yaml"
+        if not sem_path.exists():
+            await generate_semantic(body.db_url, schema_info, api_key)
+        semantic_info = load_semantic(body.db_url)
+
+    # Parametrli INSERT — SQL injection yoxdur
     nl_input_safe = body.message[:400]
     ql_result = await db.execute(
-        sa.text("INSERT INTO query_logs (session_id, nl_input, status) VALUES (:session_id, :nl_input, :status) RETURNING id"),
+        sa.text(
+            "INSERT INTO query_logs (session_id, nl_input, status) "
+            "VALUES (:session_id, :nl_input, :status) RETURNING id"
+        ),
         {"session_id": body.session_id, "nl_input": nl_input_safe, "status": "pending_approval"},
     )
     await db.commit()
     query_log_id = str(ql_result.scalar())
 
+    semantic_block = semantic_info if semantic_info else "(semantic layer yoxdur)"
+
+    prompt = f"""Sen SQL agentisen. Aşağıdakı sxem və semantik layerə əsaslanaraq istifadəçinin sualını cavabla.
+
+{schema_info}
+
+{semantic_block}
+
+FEW-SHOT NÜMUNƏLƏR (bu nümunələrə əsaslanaraq SQL yaz):
+
+Sual: aylıq sifariş sayı
+SQL: SELECT EXTRACT(MONTH FROM order_purchase_timestamp) AS ay, COUNT(*) AS sifaris_sayi FROM olist_orders_dataset GROUP BY ay ORDER BY ay
+
+Sual: ən çox satılan kateqoriyalar
+SQL: SELECT p.product_category_name, COUNT(*) AS satis FROM olist_order_items_dataset oi JOIN olist_products_dataset p ON oi.product_id = p.product_id GROUP BY p.product_category_name ORDER BY satis DESC LIMIT 10
+
+Sual: çatdırılmış sifarişlərin faizi
+SQL: SELECT ROUND(COUNT(*) FILTER (WHERE order_status = 'delivered') * 100.0 / COUNT(*), 2) AS faiz FROM olist_orders_dataset
+
+Sual: ən çox müştərili şəhərlər
+SQL: SELECT customer_city, COUNT(*) AS musteri_sayi FROM olist_customers_dataset GROUP BY customer_city ORDER BY musteri_sayi DESC LIMIT 10
+
+Sual: ortalama çatdırılma vaxtı gün
+SQL: SELECT ROUND(AVG(EXTRACT(EPOCH FROM (order_delivered_customer_date - order_purchase_timestamp))/86400), 1) AS orta_gun FROM olist_orders_dataset WHERE order_delivered_customer_date IS NOT NULL
+
+Sual: reytinq üzrə sifariş sayı
+SQL: SELECT review_score, COUNT(*) AS say FROM olist_order_reviews_dataset GROUP BY review_score ORDER BY review_score
+
+Sual: ödəniş növlərinin paylanması
+SQL: SELECT payment_type, COUNT(*) AS say, ROUND(SUM(payment_value), 2) AS umumi FROM olist_order_payments_dataset GROUP BY payment_type ORDER BY say DESC
+
+Sual: ümumi gəlir
+SQL: SELECT ROUND(SUM(price + freight_value), 2) AS umumi_gelir FROM olist_order_items_dataset
+
+Sual: hər regionda ən çox satılan kateqoriya
+SQL: WITH s AS (SELECT c.customer_state AS region, p.product_category_name AS cat, COUNT(*) AS n FROM olist_order_items_dataset oi JOIN olist_orders_dataset o ON oi.order_id=o.order_id JOIN olist_customers_dataset c ON o.customer_id=c.customer_id JOIN olist_products_dataset p ON oi.product_id=p.product_id GROUP BY region, cat) SELECT region, cat, n FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY region ORDER BY n DESC) AS rn FROM s) t WHERE rn=1
+
+Sual: ən çox satan satıcılar
+SQL: SELECT seller_id, COUNT(*) AS satis, ROUND(SUM(price), 2) AS gelir FROM olist_order_items_dataset GROUP BY seller_id ORDER BY satis DESC LIMIT 10
+
+VACİB QAYDA: Yuxarıdakı nümunələrə baxaraq oxşar suallar üçün oxşar SQL strukturu istifadə et. SQL alias adlarında nöqtə işlətmə.
+
+VACİB QAYDALAR:
+- Yalnız yuxarıdakı sxemdəki REAL sütun adlarını istifadə et
+- Semantik layerdəki metric formulalarını istifadə et (varsa)
+- SQL-i ```sql ``` blokunun içinə yaz
+- Cavabı Azərbaycan dilində ver
+- SQL alias adlarında nöqtə işlətmə (rvw.score deyil, score yaz)
+
+İstifadəçi sualı: {{body.message}}
+
+SQL sorğusu yaz və izah et."""
+
     try:
-        schema_info = ""
-        real_result = ""
-        exec_ms = 0
-        llm_answer = ""
-
-        if source_type == "postgresql":
-            conn = None
-            try:
-                if body.db_url:
-                    schema_info, conn = await get_postgresql_schema(body.db_url)
-                    db_name = get_db_name(body.db_url)
-                    sem_path = Path(__file__).parent.parent / f"semantic_{db_name}.yaml"
-                    if not sem_path.exists():
-                        await generate_semantic(body.db_url, schema_info, api_key)
-                    semantic_info = load_semantic(body.db_url)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 1500,
+                    },
+                    timeout=30.0,
+                )
+                data = resp.json()
+                if "choices" in data:
+                    llm_answer = data["choices"][0]["message"]["content"]
                 else:
-                    semantic_info = ""
+                    llm_answer = "API xətası: " + str(data.get("error", data))
 
-                prompt = f"""Sen SQL agentisen. PostgreSQL sxeminə əsaslanaraq cavabla.
-{schema_info}
-{semantic_info if semantic_info else ''}
-VACİB: Yalnız sxemdəki REAL sütun adlarını istifadə et. SQL-i ```sql ``` içinə yaz. Azərbaycan dilində cavabla.
-Sual: {body.message}"""
+            real_result = ""
+            exec_ms = 0
 
-                history = get_history(body.session_id)
-            add_to_history(body.session_id, "user", body.message)
-            llm_answer = await call_llm(prompt, api_key, history)
-            add_to_history(body.session_id, "assistant", llm_answer)
-
-                if conn:
-                    sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_answer, re.DOTALL)
-                    if sql_match:
-                        sql = sql_match.group(1).strip()
-                        is_safe, err_msg = validate_sql(sql)
-                        if not is_safe:
-                            real_result = f"\n\n🚫 SQL bloklandı: {err_msg}"
-                            await db.execute(sa.text("UPDATE query_logs SET status = :s WHERE id = :id"), {"s": "blocked", "id": query_log_id})
-                            await db.commit()
-                            return ChatResponse(session_id=body.session_id, query_log_id=query_log_id, answer=llm_answer + real_result, status="blocked", source_type=source_type)
-                        try:
-                            t0 = time.perf_counter()
-                            result_rows = await conn.fetch(sql)
-                            exec_ms = int((time.perf_counter() - t0) * 1000)
-                            real_result = format_rows([dict(r) for r in result_rows], len(result_rows))
-                        except Exception as e:
-                            real_result = f"\n\n⚠ SQL icra xətası: {e}"
-            finally:
-                if conn:
-                    await conn.close()
-
-        elif source_type == "mysql":
-            from data_source.mysql import get_mysql_schema, execute_mysql_sql, close_mysql
-            mysql_conn = None
-            try:
-                if not body.db_url:
-                    raise ValueError("MySQL üçün db_url tələb olunur")
-                schema_info, mysql_conn = await get_mysql_schema(body.db_url)
-                prompt = f"""Sen SQL agentisen. MySQL sxeminə əsaslanaraq cavabla.
-{schema_info}
-VACİB: MySQL sintaksisi istifadə et. SQL-i ```sql ``` içinə yaz. Azərbaycan dilində cavabla.
-Sual: {body.message}"""
-                history = get_history(body.session_id)
-            add_to_history(body.session_id, "user", body.message)
-            llm_answer = await call_llm(prompt, api_key, history)
-            add_to_history(body.session_id, "assistant", llm_answer)
-                if mysql_conn:
-                    sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_answer, re.DOTALL)
-                    if sql_match:
-                        rows, exec_ms, err = await execute_mysql_sql(mysql_conn, sql_match.group(1).strip())
-                        real_result = f"\n\n⚠ MySQL xətası: {err}" if err else format_rows(rows, len(rows))
-            finally:
-                if mysql_conn:
-                    await close_mysql(mysql_conn)
-
-        elif source_type == "excel":
-            from data_source.excel import get_excel_schema, execute_excel_sql
-            if not body.file_path:
-                raise ValueError("Excel ucun file_path teleb olunur")
-            schema_info, excel_ds = get_excel_schema(body.file_path)
-            bts = chr(96) * 3
-            prompt = ("Sen SQL agentisen. Bu Excel/CSV faylina esaslanaraq cavabla.\n"
-                      + schema_info + "\n"
-                      + "VACIB: SQLite sintaksisi istifade et. "
-                      + "SQL-i " + bts + "sql " + bts + " icine yaz. "
-                      + "Azerbaycan dilinde cavabla.\n"
-                      + "Sual: " + body.message)
-            history = get_history(body.session_id)
-            add_to_history(body.session_id, "user", body.message)
-            llm_answer = await call_llm(prompt, api_key, history)
-            add_to_history(body.session_id, "assistant", llm_answer)
-            if excel_ds:
-                import re
-                pat = bts + r"sql\s*(.*?)\s*" + bts
-                found = re.search(pat, llm_answer, re.DOTALL)
-                if found:
-                    sql_text = found.group(1).strip()
-                    result_rows, exec_err = execute_excel_sql(excel_ds, sql_text)
-                    if exec_err:
-                        real_result = "\n\nExcel SQL xetasi: " + exec_err
-                    else:
-                        real_result = format_rows(result_rows, len(result_rows))
-                excel_ds.close()
-        else:
-            raise ValueError(f"Naməlum source_type: {source_type}. Dəstəklənənlər: postgresql, mysql, excel")
+            if conn:
+                sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_answer, re.DOTALL)
+                if sql_match:
+                    sql = sql_match.group(1).strip()
+                    is_safe, err_msg = validate_sql(sql)
+                    if not is_safe:
+                        real_result = f"\n\n🚫 SQL bloklandı: {err_msg}"
+                        await db.execute(
+                            sa.text("UPDATE query_logs SET status = :status WHERE id = :id"),
+                            {"status": "blocked", "id": query_log_id},
+                        )
+                        await db.commit()
+                        return ChatResponse(
+                            session_id=body.session_id,
+                            query_log_id=query_log_id,
+                            answer=llm_answer + real_result,
+                            status="blocked",
+                        )
+                    try:
+                        t0 = time.perf_counter()
+                        result_rows = await conn.fetch(sql)
+                        exec_ms = int((time.perf_counter() - t0) * 1000)
+                        if result_rows:
+                            cols = list(result_rows[0].keys())
+                            header = " | ".join(cols)
+                            sep = "-" * len(header)
+                            rows_text = "\n".join(
+                                [" | ".join(str(v) for v in r.values()) for r in result_rows[:20]]
+                            )
+                            real_result = (
+                                f"\n\n📊 Real nəticə ({len(result_rows)} sətir):\n"
+                                f"{header}\n{sep}\n{rows_text}"
+                            )
+                            if len(result_rows) > 20:
+                                real_result += f"\n... +{len(result_rows) - 20} sətir"
+                        else:
+                            real_result = "\n\n📊 Nəticə: boş"
+                    except Exception as e:
+                        real_result = f"\n\n⚠ SQL icra xətası: {e}"
+        finally:
+            if conn:
+                await conn.close()
 
         answer = llm_answer + real_result
-        await db.execute(sa.text("UPDATE query_logs SET status = :s, execution_time_ms = :ms WHERE id = :id"), {"s": "success", "ms": exec_ms, "id": query_log_id})
+
+        await db.execute(
+            sa.text(
+                "UPDATE query_logs SET status = :status, execution_time_ms = :ms WHERE id = :id"
+            ),
+            {"status": "success", "ms": exec_ms, "id": query_log_id},
+        )
         await db.commit()
-        return ChatResponse(session_id=body.session_id, query_log_id=query_log_id, answer=answer, status="success", source_type=source_type)
+
+        return ChatResponse(
+            session_id=body.session_id,
+            query_log_id=query_log_id,
+            answer=answer,
+            status="success",
+        )
 
     except Exception as e:
         err = str(e)[:200]
-        await db.execute(sa.text("UPDATE query_logs SET status = :s, error_message = :err WHERE id = :id"), {"s": "error", "err": err, "id": query_log_id})
+        await db.execute(
+            sa.text(
+                "UPDATE query_logs SET status = :status, error_message = :err WHERE id = :id"
+            ),
+            {"status": "error", "err": err, "id": query_log_id},
+        )
         await db.commit()
-        return ChatResponse(session_id=body.session_id, query_log_id=query_log_id, answer=f"Xəta: {e}", status="error", source_type=source_type)
+        return ChatResponse(
+            session_id=body.session_id,
+            query_log_id=query_log_id,
+            answer=f"Xəta: {e}",
+            status="error",
+        )
