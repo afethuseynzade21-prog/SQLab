@@ -41,6 +41,95 @@ def get_db_name(db_url: str) -> str:
     return db_url.rstrip("/").split("/")[-1]
 
 
+
+
+def filter_schema(schema_text: str, question: str) -> str:
+    """Sualın açar sözlərinə görə yalnız lazımlı cədvəlləri seçir."""
+    q = question.lower()
+
+    # Cədvəl-açar söz xəritəsi
+    table_keywords = {
+        "olist_orders_dataset": [
+            "sifariş", "order", "status", "çatdırılma", "tarix", "delivery",
+            "purchase", "approved", "canceled", "shipped", "processing"
+        ],
+        "olist_customers_dataset": [
+            "müştəri", "customer", "şəhər", "city", "əyalət", "state",
+            "region", "zip", "poçt"
+        ],
+        "olist_order_items_dataset": [
+            "məhsul", "product", "qiymət", "price", "gəlir", "revenue",
+            "freight", "satış", "satis", "item", "seller", "satıcı"
+        ],
+        "olist_order_payments_dataset": [
+            "ödəniş", "payment", "kredit", "credit", "boleto", "voucher",
+            "taksit", "installment"
+        ],
+        "olist_order_reviews_dataset": [
+            "rəy", "review", "reytinq", "rating", "score", "şərh",
+            "məmnun", "satisfaction"
+        ],
+        "olist_products_dataset": [
+            "məhsul", "product", "kateqoriya", "category", "çəki", "weight",
+            "ölçü", "dimension"
+        ],
+        "olist_sellers_dataset": [
+            "satıcı", "seller", "vendor", "şəhər", "city", "əyalət", "state"
+        ],
+        "product_category_name_translation": [
+            "kateqoriya", "category", "ingilis", "english", "translation",
+            "tərcümə"
+        ],
+    }
+
+    # Seçilmiş cədvəllər
+    selected = set()
+    for table, keywords in table_keywords.items():
+        for kw in keywords:
+            if kw in q:
+                selected.add(table)
+                break
+
+    # Heç biri tapılmadısa hamısını göstər
+    if not selected:
+        return schema_text
+
+    # Həmişə əlaqəli cədvəlləri əlavə et
+    # Əgər items seçilibsə, orders və products da lazımdır
+    if "olist_order_items_dataset" in selected:
+        selected.add("olist_orders_dataset")
+        selected.add("olist_products_dataset")
+    # Əgər reviews seçilibsə, orders da lazımdır
+    if "olist_order_reviews_dataset" in selected:
+        selected.add("olist_orders_dataset")
+    # Əgər customers seçilibsə, orders da lazımdır
+    if "olist_customers_dataset" in selected:
+        selected.add("olist_orders_dataset")
+    # Əgər payments seçilibsə, orders da lazımdır
+    if "olist_order_payments_dataset" in selected:
+        selected.add("olist_orders_dataset")
+
+    # Sxemi filtrəl
+    lines = schema_text.split("\n")
+    filtered = []
+    include = False
+    for line in lines:
+        if line.startswith("=== "):
+            filtered.append(line)
+            continue
+        # Cədvəl başlığı
+        is_table_header = any(
+            line.strip().startswith(tbl + ":") or line.strip() == tbl + ":"
+            for tbl in table_keywords.keys()
+        )
+        if is_table_header:
+            tbl_name = line.strip().rstrip(":")
+            include = tbl_name in selected
+        if include or not is_table_header:
+            filtered.append(line)
+
+    return "\n".join(filtered)
+
 def load_semantic(db_url: str) -> str:
     """Semantic YAML faylını yükləyir."""
     try:
@@ -205,10 +294,12 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatRes
     query_log_id = str(ql_result.scalar())
 
     semantic_block = semantic_info if semantic_info else "(semantic layer yoxdur)"
+    # Sualın açar sözlərinə görə sxemi filtrəl
+    filtered_schema = filter_schema(schema_info, body.message)
 
     prompt = f"""Sen SQL agentisen. Aşağıdakı sxem və semantik layerə əsaslanaraq istifadəçinin sualını cavabla.
 
-{schema_info}
+{filtered_schema}
 
 {semantic_block}
 
