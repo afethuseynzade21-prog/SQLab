@@ -3,7 +3,7 @@ SQL Agent Monitoring Dashboard — Streamlit
 Real FastAPI backend-ə qoşulur, canlı məlumat göstərir.
 
 İşə salmaq:
-    streamlit run sql_agent_dashboard.py --server.port 8501
+    streamlit run dashboard.py --server.port 8501
     # http://localhost:8501
 """
 
@@ -15,7 +15,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
-# ── Səhifə konfiqurasiyası ────────────────────────────────────
 st.set_page_config(
     page_title="SQL Agent Monitor",
     page_icon="⚡",
@@ -23,7 +22,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────
 st.markdown("""
 <style>
   .block-container { padding-top: 1.2rem; }
@@ -33,14 +31,16 @@ st.markdown("""
   }
   .stMetric { background: #111418 !important; }
   div[data-testid="stMetricValue"] { font-family: 'JetBrains Mono', monospace; }
+  .approval-card {
+    background: #0d1117; border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 18px; margin-bottom: 14px;
+  }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Sidebar ───────────────────────────────────────────────────
 API_BASE = st.sidebar.text_input("API URL", value="http://localhost:8000/api/v1")
 AUTO_REFRESH = st.sidebar.checkbox("Avtomatik yenilə (30s)", value=False)
 
-# FIX #1: Auto-refresh — tight loop əvəzinə 30s gözlə, sonra rerun et
 if AUTO_REFRESH:
     placeholder = st.sidebar.empty()
     for remaining in range(30, 0, -1):
@@ -50,8 +50,6 @@ if AUTO_REFRESH:
     st.cache_data.clear()
     st.rerun()
 
-# ── Veri yükləmə funksiyaları ─────────────────────────────────
-# FIX #2: API_BASE-i parametr kimi ötür ki, cache düzgün işləsin
 
 @st.cache_data(ttl=30)
 def fetch(path: str, api_base: str, params: dict | None = None) -> dict | list | None:
@@ -90,12 +88,44 @@ def evaluations(api_base: str, size: int = 50) -> list:
     return fetch(f"/evaluations?size={size}", api_base) or []
 
 
-# ── Əl ilə yenilə düyməsi ─────────────────────────────────────
+def pending_approvals(api_base: str) -> list:
+    """Gözləyən sorğuları gətirir — cache olmadan, həmişə təzə."""
+    try:
+        r = httpx.get(f"{api_base}/approvals/pending", timeout=5.0, follow_redirects=True)
+        if r.status_code == 200:
+            return r.json()
+        return []
+    except Exception:
+        return []
+
+
+def approve_query(api_base: str, query_log_id: str) -> bool:
+    try:
+        r = httpx.post(
+            f"{api_base}/approvals/{query_log_id}/approve",
+            timeout=10.0,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def reject_query(api_base: str, query_log_id: str, reason: str = "İnsan tərəfindən rədd edildi") -> bool:
+    try:
+        r = httpx.post(
+            f"{api_base}/approvals/{query_log_id}/reject",
+            json={"reason": reason},
+            timeout=10.0,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 if st.sidebar.button("🔄 İndi yenilə"):
     st.cache_data.clear()
     st.rerun()
 
-# ── Header ────────────────────────────────────────────────────
 col_t, col_ts = st.columns([3, 1])
 with col_t:
     st.markdown("## ⚡ SQL Agent Monitor")
@@ -108,9 +138,13 @@ with col_ts:
 
 st.divider()
 
-# ── Tablar ────────────────────────────────────────────────────
-tab_ov, tab_q, tab_sec, tab_eval = st.tabs([
-    "📊 Ümumi baxış", "🔍 Sorğular", "🔒 Təhlükəsizlik", "📈 Qiymətləndirmə"
+# Gözləyən sorğu sayını badge kimi göstər
+pending = pending_approvals(API_BASE)
+pending_count = len(pending)
+tab_approval_label = f"✋ Təsdiq ({pending_count})" if pending_count > 0 else "✋ Təsdiq"
+
+tab_ov, tab_q, tab_approval, tab_sec, tab_eval = st.tabs([
+    "📊 Ümumi baxış", "🔍 Sorğular", tab_approval_label, "🔒 Təhlükəsizlik", "📈 Qiymətləndirmə"
 ])
 
 # ════════════════════════════════════════════════════════════════
@@ -119,7 +153,6 @@ tab_ov, tab_q, tab_sec, tab_eval = st.tabs([
 with tab_ov:
     stats = query_stats(API_BASE)
 
-    # FIX #3: real delta — keşdən əvvəlki dəyəri müqayisə et
     prev_success = st.session_state.get("prev_success_rate", None)
     cur_success = stats.get("success_rate_pct")
     if cur_success is not None:
@@ -132,16 +165,16 @@ with tab_ov:
     else:
         delta_val = None
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Cəmi sorğu",       stats.get("total", "—"))
     k2.metric("Uğur faizi",       f"{cur_success or '—'}%", delta=delta_val)
     k3.metric("Ort. icra vaxtı",  f"{stats.get('avg_execution_ms', '—')} ms")
-    k4.metric("Bloklanmış sorğu", stats.get("blocked", "—"))
+    k4.metric("Bloklanmış",       stats.get("blocked", "—"))
+    k5.metric("Gözləyən",         pending_count, delta=f"+{pending_count}" if pending_count > 0 else None)
 
     st.divider()
     col_left, col_right = st.columns(2)
 
-    # Agent performans cədvəli
     with col_left:
         st.markdown("**Agent performansı**")
         agent_list = agents(API_BASE)
@@ -158,9 +191,8 @@ with tab_ov:
             ])
             st.dataframe(df_agents, use_container_width=True, hide_index=True)
         else:
-            st.info("Agent məlumatı tapılmadı. FastAPI işləyirmi?")
+            st.info("Agent məlumatı tapılmadı.")
 
-    # Sorğu status paylaması
     with col_right:
         st.markdown("**Sorğu status paylaması**")
         if stats:
@@ -224,7 +256,7 @@ with tab_q:
                 "success":          "background-color:#1a5c3e; color:#3ecf8e",
                 "error":            "background-color:#5c1f1f; color:#e05c5c",
                 "blocked":          "background-color:#7a5210; color:#e8a020",
-                "pending_approval":  "background-color:#1a3a55; color:#4ea8de",
+                "pending_approval": "background-color:#1a3a55; color:#4ea8de",
             }
             return colors.get(val, "")
 
@@ -238,7 +270,73 @@ with tab_q:
         st.info("Sorğu tapılmadı.")
 
 # ════════════════════════════════════════════════════════════════
-#  TAB 3: Təhlükəsizlik
+#  TAB 3: Human-in-the-loop Təsdiq
+# ════════════════════════════════════════════════════════════════
+with tab_approval:
+    st.markdown("### ✋ Gözləyən sorğular")
+    st.caption("Aşağıdakı sorğular icra olunmadan sizin təsdiqinizi gözləyir.")
+
+    if st.button("🔄 Yenilə", key="refresh_approvals"):
+        st.rerun()
+
+    if not pending:
+        st.success("✓ Gözləyən sorğu yoxdur.")
+    else:
+        st.warning(f"**{pending_count}** sorğu gözləyir.")
+        st.divider()
+
+        for i, item in enumerate(pending):
+            qid = item.get("id") or item.get("query_log_id", "")
+            nl  = item.get("nl_input", "—")
+            sql = item.get("sql_query") or item.get("generated_sql") or "SQL mövcud deyil"
+            session = item.get("session_id", "—")
+            created = (item.get("created_at") or item.get("executed_at") or "")[:19]
+
+            with st.container():
+                st.markdown(f"""
+<div class="approval-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="color:#4ea8de;font-family:monospace;font-size:12px">#{i+1} · Session: {session[:20]}...</span>
+    <span style="color:#666;font-size:11px">{created}</span>
+  </div>
+  <div style="color:#e2e8f0;margin-bottom:10px"><strong>Sual:</strong> {nl}</div>
+  <div style="background:#050810;border-left:3px solid #3b82f6;padding:10px;border-radius:4px;font-family:monospace;font-size:12px;color:#60a5fa;white-space:pre-wrap">{sql}</div>
+</div>
+""", unsafe_allow_html=True)
+
+                col_a, col_r, col_reason = st.columns([1, 1, 3])
+
+                with col_a:
+                    if st.button("✅ Təsdiqlə", key=f"approve_{qid}_{i}", type="primary"):
+                        if approve_query(API_BASE, qid):
+                            st.success(f"Sorğu təsdiqləndi!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Xəta baş verdi. API işləyirmi?")
+
+                with col_r:
+                    if st.button("❌ Rədd et", key=f"reject_{qid}_{i}"):
+                        reason = st.session_state.get(f"reason_{qid}", "İnsan tərəfindən rədd edildi")
+                        if reject_query(API_BASE, qid, reason):
+                            st.warning("Sorğu rədd edildi.")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Xəta baş verdi.")
+
+                with col_reason:
+                    st.text_input(
+                        "Rədd səbəbi (ixtiyari)",
+                        key=f"reason_{qid}",
+                        placeholder="Məsələn: Şübhəli sorğu...",
+                        label_visibility="collapsed",
+                    )
+
+                st.divider()
+
+# ════════════════════════════════════════════════════════════════
+#  TAB 4: Təhlükəsizlik
 # ════════════════════════════════════════════════════════════════
 with tab_sec:
     col_sl, col_sr = st.columns([2, 1])
@@ -288,7 +386,7 @@ with tab_sec:
             st.plotly_chart(fig2, use_container_width=True)
 
 # ════════════════════════════════════════════════════════════════
-#  TAB 4: Qiymətləndirmə
+#  TAB 5: Qiymətləndirmə
 # ════════════════════════════════════════════════════════════════
 with tab_eval:
     eval_list = evaluations(API_BASE, size=50)
@@ -356,13 +454,12 @@ with tab_eval:
         ])
         st.dataframe(df_eval, use_container_width=True, hide_index=True, height=350)
     else:
-        st.info("Qiymətləndirmə məlumatı tapılmadı. Evaluation pipeline işlətdinizmi?")
+        st.info("Qiymətləndirmə məlumatı tapılmadı.")
 
-# ── Footer ────────────────────────────────────────────────────
 st.divider()
 st.markdown(
     "<div style='text-align:center;color:#3d3c38;font-family:monospace;font-size:11px'>"
-    "SQL Agent Monitor · agent_performance_summary view · "
+    "SQL Agent Monitor · "
     f"Son yeniləmə: {datetime.now().strftime('%H:%M:%S')}"
     "</div>",
     unsafe_allow_html=True,
