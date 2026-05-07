@@ -244,6 +244,9 @@ SQL: WITH s AS (SELECT c.customer_state AS region, p.product_category_name AS ca
 Sual: ən çox satan satıcılar
 SQL: SELECT seller_id, COUNT(*) AS satis, ROUND(SUM(price), 2) AS gelir FROM olist_order_items_dataset GROUP BY seller_id ORDER BY satis DESC LIMIT 10
 
+Sual: bazarin 80 faiz satisini nece satici formalaşdirir
+SQL: WITH satis AS (SELECT seller_id, SUM(price + freight_value) AS umumi FROM olist_order_items_dataset GROUP BY seller_id), kumul AS (SELECT seller_id, umumi, SUM(umumi) OVER (ORDER BY umumi DESC) AS kumul_satis, SUM(umumi) OVER () AS total_satis FROM satis) SELECT COUNT(*) AS satici_sayi FROM kumul WHERE kumul_satis <= total_satis * 0.8
+
 VACİB QAYDA: Yuxarıdakı nümunələrə baxaraq oxşar suallar üçün oxşar SQL strukturu istifadə et. SQL alias adlarında nöqtə işlətmə.
 
 VACİB QAYDALAR:
@@ -251,11 +254,17 @@ VACİB QAYDALAR:
 - Semantik layerdəki metric formulalarını istifadə et (varsa)
 - SQL-i ```sql ``` blokunun içinə yaz
 - Cavabı Azərbaycan dilində ver
-- SQL alias adlarında nöqtə işlətmə (rvw.score deyil, score yaz)
+- SQL alias adlarında nöqtə işlətmə
+
+DÜŞÜNCƏ PROSESİ - SQL yazmadan əvvəl bu addımları izlə:
+1. Sual nə soruşur? (bir cümlə)
+2. Hansı cədvəllər lazımdır?
+3. Hansı hesablamalar lazımdır? (SUM, COUNT, AVG, window functions?)
+4. Nəticə necə olmalıdır? (bir rəqəm, siyahı, qruplaşdırılmış?)
 
 İstifadəçi sualı: {{body.message}}
 
-SQL sorğusu yaz və izah et."""
+Yuxarıdakı düşüncə prosesini izlə, sonra SQL sorğusunu yaz."""
 
     try:
         try:
@@ -297,10 +306,54 @@ SQL sorğusu yaz və izah et."""
                             answer=llm_answer + real_result,
                             status="blocked",
                         )
-                    try:
-                        t0 = time.perf_counter()
-                        result_rows = await conn.fetch(sql)
-                        exec_ms = int((time.perf_counter() - t0) * 1000)
+                    async def try_execute(sql_text, attempt=1):
+                        try:
+                            t0 = time.perf_counter()
+                            rows = await conn.fetch(sql_text)
+                            ms = int((time.perf_counter() - t0) * 1000)
+                            return rows, ms, None
+                        except Exception as e:
+                            return None, 0, str(e)
+
+                    rows1, exec_ms, err1 = await try_execute(sql)
+
+                    if err1 and attempt_count := 1:
+                        # Self-correction: xətanı LLM-ə göndər, düzəldilmiş SQL al
+                        fix_prompt = f"""SQL xətası var. Düzəlt.
+
+Sxem:
+{schema_info}
+
+Orijinal SQL:
+{sql}
+
+Xəta:
+{err1}
+
+VACİB: Yalnız düzəldilmiş SQL-i ```sql ``` blokunda yaz, başqa heç nə yazma."""
+                        try:
+                            async with httpx.AsyncClient() as fix_client:
+                                fix_resp = await fix_client.post(
+                                    "https://api.groq.com/openai/v1/chat/completions",
+                                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": fix_prompt}], "max_tokens": 800},
+                                    timeout=20.0,
+                                )
+                                fix_data = fix_resp.json()
+                                if "choices" in fix_data:
+                                    fix_answer = fix_data["choices"][0]["message"]["content"]
+                                    import re as _re
+                                    fix_match = _re.search(r"```sql\s*(.*?)\s*```", fix_answer, _re.DOTALL)
+                                    if fix_match:
+                                        fixed_sql = fix_match.group(1).strip()
+                                        rows1, exec_ms, err1 = await try_execute(fixed_sql)
+                                        if not err1:
+                                            sql = fixed_sql
+                        except Exception:
+                            pass
+
+                    result_rows = rows1
+                    if result_rows is not None and err1 is None:
                         if result_rows:
                             cols = list(result_rows[0].keys())
                             header = " | ".join(cols)
@@ -316,8 +369,8 @@ SQL sorğusu yaz və izah et."""
                                 real_result += f"\n... +{len(result_rows) - 20} sətir"
                         else:
                             real_result = "\n\n📊 Nəticə: boş"
-                    except Exception as e:
-                        real_result = f"\n\n⚠ SQL icra xətası: {e}"
+                    else:
+                        real_result = f"\n\n⚠ SQL icra xətası: {err1}"
         finally:
             if conn:
                 await conn.close()
