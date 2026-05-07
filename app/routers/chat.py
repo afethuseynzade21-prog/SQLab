@@ -263,6 +263,12 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatRes
         await db.execute(sa.text(
             "UPDATE query_logs SET status = :s, execution_time_ms = :ms, llm_judge_score = :score WHERE id = :id"
         ), {"s": "SUCCESS", "ms": exec_ms, "score": judge_score, "id": query_log_id})
+
+        if judge_score is not None:
+            await db.execute(sa.text(
+                "INSERT INTO evaluations (query_log_id, llm_judge_score, judge_model, notes) VALUES (:qid, :score, :model, :notes)"
+            ), {"qid": query_log_id, "score": judge_score, "model": "llama-3.3-70b-versatile", "notes": body.message[:200]})
+
         await db.commit()
 
         return ChatResponse(session_id=body.session_id, query_log_id=query_log_id, answer=answer, status="success")
