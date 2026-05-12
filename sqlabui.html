@@ -177,6 +177,7 @@
       </div>
       <button class="icon-btn" onclick="openSettingsPanel()" title="Dizayn ayarları">⚙</button>
       <button class="monitor-btn" onclick="window.open('http://localhost:8501','_blank')" title="Monitor Dashboard"><span class="monitor-dot"></span>Monitor</button>
+     
     </div>
   </header>
 
@@ -208,6 +209,7 @@ Başlamaq üçün yuxarıdakı <strong>"Baza seç"</strong> düyməsinə basıb 
     <div class="db-tabs">
       <button class="db-tab active" onclick="switchDbTab('pg')">PostgreSQL</button>
       <button class="db-tab" onclick="switchDbTab('my')">MySQL</button>
+      <button class="db-tab" onclick="switchDbTab('xl')">Excel/CSV</button>
       <button class="db-tab" onclick="switchDbTab('saved')">Saxlanmış</button>
     </div>
 
@@ -257,6 +259,16 @@ Başlamaq üçün yuxarıdakı <strong>"Baza seç"</strong> düyməsinə basıb 
         <button class="db-btn" onclick="saveConn('my')">Saxla</button>
       </div>
       <div class="db-status" id="my-status"></div>
+    </div>
+
+    <!-- Excel -->
+    <div class="db-panel" id="dbp-xl">
+      <div class="field">
+        <label>Excel / CSV fayl seç</label>
+        <input type="file" id="xl-file" accept=".xlsx,.xls,.csv,.tsv" style="color:var(--text2);font-family:var(--mono);font-size:12px;"/>
+      </div>
+      <div id="xl-schema" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:8px;white-space:pre-wrap;max-height:120px;overflow-y:auto;"></div>
+      <button class="conn-btn" onclick="connectExcel()" style="margin-top:12px;">Faylı yüklə</button>
     </div>
 
     <!-- Saved -->
@@ -396,11 +408,37 @@ function updateConnBadge(name, connected) {
 }
 
 function switchDbTab(t) {
-  ["pg","my","saved"].forEach((id, i) => {
+  ["pg","my","xl","saved"].forEach((id, i) => {
     document.querySelectorAll(".db-tab")[i].classList.toggle("active", id===t);
     document.getElementById("dbp-"+id).classList.toggle("active", id===t);
   });
   if (t==="saved") renderSaved();
+}
+
+let excelFilePath = null;
+let excelTableName = null;
+
+async function connectExcel() {
+  const fileInput = document.getElementById("xl-file");
+  if (!fileInput.files.length) { alert("Fayl seçin!"); return; }
+  const file = fileInput.files[0];
+  const form = new FormData();
+  form.append("file", file);
+  const schemaDiv = document.getElementById("xl-schema");
+  schemaDiv.textContent = "Yüklənir...";
+  try {
+    const resp = await fetch("http://localhost:8000/api/v1/agent/upload-excel", {method:"POST", body:form});
+    const data = await resp.json();
+    if (data.error) { schemaDiv.textContent = "Xəta: " + data.error; return; }
+    excelFilePath = data.file_path;
+    excelTableName = data.table_name;
+    window.excelSchema = data.schema;
+    schemaDiv.textContent = data.schema;
+    updateConnBadge(file.name, true);
+    activeDbType = "excel";
+    activeDbUrl = null;
+    closeDbPanel();
+  } catch(e) { schemaDiv.textContent = "Xəta: " + e; }
 }
 
 function openDbPanel() { document.getElementById("db-overlay").classList.add("open"); }
@@ -560,13 +598,33 @@ function renderAnswer(answer) {
           const show=cw.classList.toggle("show");
           btn.textContent=show?"Cedvel goster":"Qrafik goster";
           if(show&&!ci){
-            const labels=rows2.map(r=>r[0]);
-            const vals=rows2.map(r=>parseFloat(r[1])||0);
+            // Ən yaxşı label və value sütunlarını tap
+            function isNumericCol(ci2){
+              const s=rows2.slice(0,Math.min(5,rows2.length)).map(r=>(r[ci2]||"").trim()).filter(v=>v);
+              return s.length>0 && s.every(v=>!isNaN(parseFloat(v)));
+            }
+            // İlk text sütunu label, sonuncu numeric sütunu value
+            let labelIdx=0, valIdx=cols.length-1;
+            // Sonuncu numeric sütunu tap
+            for(let ci2=cols.length-1;ci2>=0;ci2--){
+              if(isNumericCol(ci2)){ valIdx=ci2; break; }
+            }
+            // İlk non-numeric sütunu tap (label üçün)
+            let foundText=false;
+            for(let ci2=0;ci2<cols.length;ci2++){
+              if(!isNumericCol(ci2)){ labelIdx=ci2; foundText=true; break; }
+            }
+            // Hamısı numericdirsə: birinci label, sonuncu value
+            if(!foundText){ labelIdx=0; }
+            // Label və value eyni olmasın
+            if(labelIdx===valIdx && valIdx>0) labelIdx=valIdx-1;
+            const labels=rows2.map(r=>r[labelIdx]);
+            const vals=rows2.map(r=>parseFloat(r[valIdx])||0);
             const isLine=/\d{4}|ay|month|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(labels.join(" "));
             const ac=getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()||"#f0a500";
             ci=new Chart(canvas,{
               type:isLine?"line":"bar",
-              data:{labels,datasets:[{label:cols[1],data:vals,backgroundColor:isLine?"transparent":ac+"44",borderColor:ac,borderWidth:2,pointBackgroundColor:ac,pointRadius:isLine?4:0,tension:0.4,fill:isLine}]},
+              data:{labels,datasets:[{label:cols[valIdx],data:vals,backgroundColor:isLine?"transparent":ac+"44",borderColor:ac,borderWidth:2,pointBackgroundColor:ac,pointRadius:isLine?4:0,tension:0.4,fill:isLine}]},
               options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#94a3b8",font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}},y:{ticks:{color:"#94a3b8",font:{size:10}},grid:{color:"rgba(255,255,255,0.04)"}}}}
             });
           }
@@ -602,7 +660,7 @@ function renderAnswer(answer) {
 async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
-  if (!activeDbUrl) {
+  if (!activeDbUrl && activeDbType !== "excel") {
     const b = addRow("agent");
     b.textContent = "Əvvəlcə 'Baza seç' düyməsinə basıb verilənlər bazanızı qoşun.";
     return;
@@ -612,17 +670,28 @@ async function sendMessage() {
   const loading = addRow("agent"); loading.classList.add("loading");
   loading.textContent = "Analiz edilir...";
   try {
-    const resp = await fetch(API, {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        session_id: SESSION_ID,
-        agent_config_id: AGENT_CONFIG_ID,
-        message: text,
-        db_url: activeDbUrl,
-        source_type: activeDbType === "my" ? "mysql" : "postgresql"
-      })
-    });
-    const data = await resp.json();
+    let data;
+    if (activeDbType === "excel") {
+      const form = new FormData();
+      form.append("file_path", excelFilePath);
+      form.append("table_name", excelTableName);
+      form.append("message", text);
+      form.append("session_id", SESSION_ID);
+      const resp = await fetch("http://localhost:8000/api/v1/agent/chat-excel", {method:"POST", body:form});
+      data = await resp.json();
+    } else {
+      const resp = await fetch(API, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          session_id: SESSION_ID,
+          agent_config_id: AGENT_CONFIG_ID,
+          message: text,
+          db_url: activeDbUrl,
+          source_type: activeDbType === "my" ? "mysql" : "postgresql"
+        })
+      });
+      data = await resp.json();
+    }
     loading.remove(); renderAnswer(data.answer);
   } catch(e) {
     loading.textContent = "Xəta: serverə qoşulmaq mümkün olmadı.";

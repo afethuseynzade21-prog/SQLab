@@ -1,9 +1,12 @@
 import os
 import re
+import pathlib
 import asyncpg
 import sqlalchemy as sa
+import tempfile
+import shutil
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 import httpx
 from pathlib import Path
@@ -149,6 +152,118 @@ Sual: bazarin 80 faiz satisini nece satici formalaşdirir
 SQL: WITH satis AS (SELECT seller_id, SUM(price + freight_value) AS umumi FROM olist_order_items_dataset GROUP BY seller_id), kumul AS (SELECT seller_id, umumi, SUM(umumi) OVER (ORDER BY umumi DESC) AS kumul_satis, SUM(umumi) OVER () AS total_satis FROM satis) SELECT COUNT(*) AS satici_sayi FROM kumul WHERE kumul_satis <= total_satis * 0.8
 """
 
+
+
+
+@router.post("/upload-excel", summary="Excel/CSV fayl yukle")
+async def upload_excel(file: UploadFile = File(...)):
+    """Excel və ya CSV faylı yükləyib sxemini qaytarır."""
+    try:
+        suffix = pathlib.Path(file.filename).suffix.lower()
+        if suffix not in {".xlsx", ".xls", ".csv", ".tsv"}:
+            return {"error": f"Desteklenmeyen format: {suffix}"}
+        
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        shutil.copyfileobj(file.file, tmp)
+        tmp.close()
+        
+        import sys
+        sys.path.insert(0, '/app')
+        from data_source.excel import get_excel_schema
+        schema, ds = get_excel_schema(tmp.name)
+        
+        return {
+            "file_path": tmp.name,
+            "filename": file.filename,
+            "schema": schema,
+            "table_name": ds.table_name if ds else None
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/chat-excel", summary="Excel fayl uzre sual ver")
+async def chat_excel(
+    file_path: str = Form(...),
+    table_name: str = Form(...),
+    message: str = Form(...),
+    session_id: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Excel datasource-a sual verir."""
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    
+    import sys
+    sys.path.insert(0, '/app')
+    from data_source.excel import ExcelDataSource
+    
+    ds = ExcelDataSource(file_path)
+    ds.load()
+    schema_info = ds.get_schema()
+    
+    nl_input_safe = message[:400].replace("'", "")
+    ql_result = await db.execute(sa.text(
+        "INSERT INTO query_logs (session_id, nl_input, status) VALUES (:sid, :nl, :st) RETURNING id"
+    ), {"sid": session_id, "nl": nl_input_safe, "st": "pending_approval"})
+    await db.commit()
+    query_log_id = str(ql_result.scalar())
+    
+    prompt = (
+        f"Sen Excel/CSV fayl analiz agentisen. YALNIZ asagidaki Excel faylindaki melumatlarla isle.\n\n"
+        f"EXCEL FAYL:\n{schema_info}\n\n"
+        f"SUPER VACIB: Yalniz '{table_name}' cedvelini istifade et. FROM {table_name} yaz.\n"
+        f"information_schema, olist ve ya baska cedvellere muraciet ETME.\n"
+        f"SQL-i ```sql ``` blokunun icine yaz. Cavabi Azerbaycan dilinde ver.\n\n"
+        f"Istifadeci suali: {message}\n\n"
+        f"Yalniz '{table_name}' cedvelindeki sutunlari istifade ederek SQL yaz."
+    )
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": 1000},
+                timeout=30.0,
+            )
+            data = resp.json()
+            llm_answer = data["choices"][0]["message"]["content"] if "choices" in data else "API xetasi"
+        
+        real_result = ""
+        sql_match = re.search(r"```sql\s*(.*?)\s*```", llm_answer, re.DOTALL)
+        if sql_match:
+            sql = sql_match.group(1).strip()
+            # Cedvel adini duzelt
+            sql = re.sub(r'\bFROM\s+\w+', f'FROM {table_name}', sql, flags=re.IGNORECASE, count=1)
+            try:
+                rows = ds.execute(sql)
+                if rows:
+                    cols = list(rows[0].keys())
+                    header = " | ".join(cols)
+                    sep = "-" * len(header)
+                    rows_text = "\n".join([" | ".join(str(v) for v in r.values()) for r in rows[:20]])
+                    real_result = f"\n\n📊 Real nəticə ({len(rows)} sətir):\n{header}\n{sep}\n{rows_text}"
+                    if len(rows) > 20:
+                        real_result += f"\n... +{len(rows)-20} setir"
+                else:
+                    real_result = "\n\n📊 Nəticə: boş"
+            except Exception as e:
+                real_result = f"\n\n⚠ SQL xetasi: {e}"
+        
+        answer = llm_answer + real_result
+        
+        await db.execute(sa.text(
+            "UPDATE query_logs SET status = :s, execution_time_ms = :ms WHERE id = :id"
+        ), {"s": "SUCCESS", "ms": 0, "id": query_log_id})
+        await db.commit()
+        ds.close()
+        
+        return ChatResponse(session_id=session_id, query_log_id=query_log_id, answer=answer, status="success")
+    
+    except Exception as e:
+        await db.execute(sa.text("UPDATE query_logs SET status = :s WHERE id = :id"), {"s": "error", "id": query_log_id})
+        await db.commit()
+        return ChatResponse(session_id=session_id, query_log_id=query_log_id, answer=f"Xeta: {e}", status="error")
 
 @router.post("/chat", response_model=ChatResponse, summary="Agent-e sual ver")
 async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
