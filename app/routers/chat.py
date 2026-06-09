@@ -213,7 +213,7 @@ async def chat_excel(
         f"EXCEL FAYL:\n{schema_info}\n\n"
         f"SUPER VACIB: Yalniz '{table_name}' cedvelini istifade et. FROM {table_name} yaz.\n"
         f"information_schema, olist ve ya baska cedvellere muraciet ETME.\n"
-        f"SQL-i ```sql ``` blokunun icine yaz. Cavabi Azerbaycan dilinde ver.\n\n"
+        f"SQL-i ```sql ``` blokunun icine yaz. Cavabi durugli Azerbaycan edebiyyat dilinde, resmi uslubda ver.\n\n"
         f"Istifadeci suali: {message}\n\n"
         f"Yalniz '{table_name}' cedvelindeki sutunlari istifade ederek SQL yaz."
     )
@@ -284,7 +284,15 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatRes
     query_log_id = str(ql_result.scalar())
 
     semantic_block = semantic_info if semantic_info else "(semantic layer yoxdur)"
-    filtered_schema = filter_schema(schema_info, body.message)
+    # RAG + keyword filter hybrid
+    try:
+        import sys; sys.path.insert(0, "/app")
+        from ai.rag import embed_schema, filter_schema_rag
+        db_name = get_db_name(body.db_url) if body.db_url else "unknown"
+        embed_schema(db_name, schema_info)  # ilk dəfə embedding yarat, sonra cache
+        filtered_schema = filter_schema_rag(schema_info, db_name, body.message)
+    except Exception:
+        filtered_schema = filter_schema(schema_info, body.message)  # fallback
 
     prompt = (
         "Sen SQL agentisen. Asagidaki sxem ve semantik layere esaslanaraq sualini cavabla.\n\n"
@@ -299,7 +307,7 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatRes
         "VACIB QAYDALAR:\n"
         "- Yalniz sxemdeki REAL sutun adlarini istifade et\n"
         "- SQL-i ```sql ``` blokunun icine yaz\n"
-        "- Cavabi Azerbaycan dilinde ver\n"
+        "- Cavabi durugli Azerbaycan edebiyyat dilinde, resmi uslubda ver\n"
         "- SQL alias adlarinda noqte isletme\n\n"
         "Istifadeci suali: " + body.message + "\n\n"
         "Yuxaridaki dusunce prosesini izle, sonra SQL sorgusu yaz."
@@ -369,7 +377,7 @@ async def chat(body: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatRes
                 jdata = jr.json()
                 if "choices" in jdata:
                     score_text = jdata["choices"][0]["message"]["content"].strip()
-                    m = re.search(r"([1-9]|10)", score_text)
+                    m = re.search(r"(10|[1-9])", score_text)
                     if m:
                         judge_score = int(m.group(1))
         except Exception:
