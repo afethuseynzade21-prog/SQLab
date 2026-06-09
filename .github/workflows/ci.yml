@@ -1,0 +1,28 @@
+name: SQLab CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodu yüklə
+        uses: actions/checkout@v4
+
+      - name: Python qur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Asılılıqları yüklə
+        run: |
+          pip install pytest sqlglot pandas openpyxl
+
+      - name: Testləri işlət
+        run: |
+          pytest tests/test_sqlab.py -v --tb=short
