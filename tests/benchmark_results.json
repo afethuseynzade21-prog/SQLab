@@ -1,0 +1,17 @@
+{
+  "Baseline": {
+    "passed": 9,
+    "total": 12,
+    "rate": 75.0
+  },
+  "+Few-shot": {
+    "passed": 12,
+    "total": 12,
+    "rate": 100.0
+  },
+  "+Few-shot+CoT (düzəldilmiş)": {
+    "passed": 8,
+    "total": 12,
+    "rate": 66.7
+  }
+}
